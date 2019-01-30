@@ -23,7 +23,7 @@ P = None
 
 ## Memory ##
 
-# uint_8, 2kb internal ram
+# uint_8, 2 kb internal ram
 # $0000-$00FF (256 bytes)   - Zero Page
 # $0100-$01FF (256 bytes)   - Stack memory
 # $0200-$07FF (1536 bytes)  - RAM
@@ -46,12 +46,22 @@ ram = [None] * 0x800
 
 # Implicit: Implied by instruction
 # Accumulator: Operate directly on accumulator
-# Immediate: Constant
-# Zero Page: 
+# Immediate: Constant, stored at current PC
 def imm():
     # return PC++
     PC += 1
     return PC - 1
+# Zero Page: 8 bit address, stored at PC
+def zp():
+    return rd(imm())
+# Zero Page X: 8 bit address stored at PC + value in X, wraps
+def zpx():
+    tick()
+    return (zp() + X) % 0x100
+# Zero Page Y: 8 bit address stored at PC + value in Y, wraps
+def zpy():
+    tick()
+    return (zp() + Y) % 0x100
 
 ## Instructions ##
 
