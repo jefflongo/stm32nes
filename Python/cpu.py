@@ -3,7 +3,7 @@
 # uint_16, Program counter register
 PC = None
 # uint_8, Stack pointer register
-SP = None
+S = None
 # uint_8, Accumulator register
 A = None
 # uint_8, GP register, can modify stack pointer
@@ -41,34 +41,121 @@ ram = [None] * 0x800
 # $FFFC-$FFFD (2 bytes)     - Power on reset handler routine
 # $FFFE-$FFFF (2 bytes)     - BRK handler routine
 
+## Read/Write ##
+def rd(addr):
+    return ram[addr]
 
 ## Addressing modes ##
 
-# Implicit: Implied by instruction
-# Accumulator: Operate directly on accumulator
-# Immediate: Constant, stored at current PC
+# Immediate:
+# - Return current PC and increment PC (immediate stored here)
 def imm():
-    # return PC++
     PC += 1
     return PC - 1
-# Zero Page: 8 bit address, stored at PC
+# ZP:
+# - Read the immediate, increment PC
+# - Return the immediate
 def zp():
-    return rd(imm())
-# Zero Page X: 8 bit address stored at PC + value in X, wraps
+    addr = rd(PC)
+    PC += 1
+    tick()
+    return addr
+# ZP,X:
+# - Read the immediate, increment PC
+# - Calculate imm + X, include wraparound
+# - Return the new address
 def zpx():
+    addr = rd(PC)
+    PC += 1
     tick()
-    return (zp() + X) % 0x100
-# Zero Page Y: 8 bit address stored at PC + value in Y, wraps
+    addr = (rd(addr) + X) % 0x100
+    tick()
+    return addr
+# ZP,Y:
+# - Read the immediate, increment PC
+# - Calculate imm + Y, include wraparound
+# - Return the new address
 def zpy():
+    addr = rd(PC)
+    PC += 1
     tick()
-    return (zp() + Y) % 0x100
-
-## Instructions ##
+    addr = (rd(addr) + Y) % 0x100
+    tick()
+    return addr
+# Absolute:
+# - Read the immediate, increment PC
+# - Merge new immediate with old immediate, increment PC
+# - Return the merged address
+def abs():
+    addr = rd(PC)
+    PC += 1
+    tick()
+    addr |= (rd(PC) << 8)
+    PC += 1
+    tick()
+    return addr
+# Absolute,X:
+# - Read the immediate, increment PC
+# - Read the new immediate, add the old immediate with X, increment PC
+# - If the sum of old imm and X overflows, reread the address next tick
+# - Merge old imm + X with new imm, return the merged address
+def absx():
+    addrl = rd(PC)
+    PC += 1
+    tick()
+    addrh = rd(PC)
+    addrl += X
+    pc += 1
+    tick()
+    if (addrl & 0xFF00 != 0):
+        tick()
+    return addrl + (addrh << 8)
+# Absolute,Y:
+# - Read the immediate, increment PC
+# - Read the new immediate, add the old immediate with Y, increment PC
+# - If the sum of old imm and Y overflows, reread the address next tick
+# - Merge old imm + Y with new imm, return the merged address
+def absy():
+    addrl = rd(PC)
+    PC += 1
+    tick()
+    addrh = rd(PC)
+    addrl += Y
+    pc += 1
+    tick()
+    if (addrl & 0xFF00 != 0):
+        tick()
+    return addrl + (addrh << 8)
+# Absolute Indirect (JMP only):
+# - Read imm (pointer low), increment PC
+# - Read imm (pointer high), increment PC
+# - Return merged address (pointer)
+def ind():
+    ptrl = rd(PC)
+    pc += 1
+    tick()
+    ptrh = rd(PC)
+    pc += 1
+    tick()
+    ptr = ptrl | (ptrh << 8)
+    addrl = rd(ptr)
+    tick()
+    addrh = rd(0xFF00 | (addr + 1) % 256)
+    return addrl + (addrh << 8)
 
 # Load/Store operations
 def LDA():
+    A = rd(addr)
+    tick()
+
 def LDX():
+    X = rd(addr)
+    tick()
+
 def LDY():
+    Y = rd(addr)
+    tick()
+
 def STA():
 def STX():
 def STY():
