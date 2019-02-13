@@ -105,7 +105,7 @@ def absx():
     tick()
     addrh = rd(PC)
     addrl += X
-    pc += 1
+    PC += 1
     tick()
     if (addrl & 0xFF00 != 0):
         tick()
@@ -121,7 +121,7 @@ def absy():
     tick()
     addrh = rd(PC)
     addrl += Y
-    pc += 1
+    PC += 1
     tick()
     if (addrl & 0xFF00 != 0):
         tick()
@@ -129,19 +129,101 @@ def absy():
 # Absolute Indirect (JMP only):
 # - Read imm (pointer low), increment PC
 # - Read imm (pointer high), increment PC
-# - Return merged address (pointer)
+# - Read low byte from pointer
+# - Read high byte from pointer (wrap around) and return the merged address
 def ind():
     ptrl = rd(PC)
-    pc += 1
+    PC += 1
     tick()
     ptrh = rd(PC)
-    pc += 1
+    PC += 1
     tick()
     ptr = ptrl | (ptrh << 8)
     addrl = rd(ptr)
     tick()
-    addrh = rd(0xFF00 | (addr + 1) % 256)
+    addrh = rd((ptr & 0xFF00) | ((ptr + 1) % 0x100))
+    return addrl | (addrh << 8)
+# X,Indirect:
+# - Read imm (pointer), increment PC
+# - Read address at imm + X on zero page
+# - Read low byte from pointer
+# - Read high byte from pointer and return the merged address
+def xind():
+    ptr = rd(PC)
+    PC += 1
+    tick()
+    ptr = (rd(ptr) + X) % 0x100
+    tick()
+    addrl = rd(ptr)
+    tick()
+    addrh = rd((ptr + 1) % 0x100)
+    return addrl | (addrh << 8)
+# Y,Indirect:
+# - Read imm (pointer), increment PC
+# - Read address at imm + Y on zero page
+# - Read low byte from pointer
+# - Read high byte from pointer and return the merged address
+def yind():
+    ptr = rd(PC)
+    PC += 1
+    tick()
+    ptr = (rd(ptr) + Y) % 0x100
+    tick()
+    addrl = rd(ptr)
+    tick()
+    addrh = rd((ptr + 1) % 0x100)
+    return addrl | (addrh << 8)
+# Indirect,X:
+# - Read imm (pointer), increment PC
+# - Read low byte from pointer on zero page
+# - Read high byte from pointer on zero page, add X to low byte
+# - If the sum of low byte and X overflows, reread the address next tick
+# - Return the merged address
+def indx():
+    ptr = rd(PC)
+    PC += 1
+    tick()
+    addrl = rd(ptr)
+    tick()
+    addrh = rd((ptr + 1) % 0x100)
+    addrl += X
+    tick()
+    if (addrl & 0xFF00 != 0):
+        tick()
     return addrl + (addrh << 8)
+# Indirect,Y:
+# - Read imm (pointer), increment PC
+# - Read low byte from pointer on zero page
+# - Read high byte from pointer on zero page, add Y to low byte
+# - If the sum of low byte and X overflows, reread the address next tick
+# - Return the merged address
+def indy():
+    ptr = rd(PC)
+    PC += 1
+    tick()
+    addrl = rd(ptr)
+    tick()
+    addrh = rd((ptr + 1) % 0x100)
+    addrl += Y
+    tick()
+    if (addrl & 0xFF00 != 0):
+        tick()
+    return addrl + (addrh << 8)
+# Relative (Assuming branch taken):
+# - Read imm (offset), increment PC
+# - Add offset to PC
+# - If adding the offset overflowed the low byte of PC, add a cycle
+def rel():
+    imm = rd(PC)
+    PC += 1
+    tick()
+    addr = PC + imm
+    tick()
+    if ((addr & 0x100) != (PC & 0x100)):
+        tick()
+    return addr
+    
+## Instructions ## 
 
 # Load/Store operations
 def LDA():
