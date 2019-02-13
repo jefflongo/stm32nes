@@ -41,9 +41,86 @@ ram = [None] * 0x800
 # $FFFC-$FFFD (2 bytes)     - Power on reset handler routine
 # $FFFE-$FFFF (2 bytes)     - BRK handler routine
 
+## CPU tick ##
+
+def tick():
+    pass
+
 ## Read/Write ##
+
 def rd(addr):
     return ram[addr]
+
+def wr(addr, data):
+    ram[addr % 0x800] = data
+
+## Flag adjustment ##
+
+def setC():
+    P |= 0x01
+
+def clrC():
+    P &= 0xFE
+
+def setZ():
+    P |= 0x02
+
+def clrZ():
+    P &= 0xFD
+
+def setI():
+    P |= 0x04
+
+def clrI():
+    P &= 0xFB
+
+def setD():
+    P |= 0x08
+
+def clrD():
+    P &= 0xF7
+
+def setB():
+    P |= 0x10
+
+def clrB():
+    P &= 0xEF
+
+def setV():
+    P |= 0x40
+
+def clrV():
+    P &= 0xBF
+
+def setN():
+    P |= 0x80
+
+def clrN():
+    P &= 0x7F
+
+def updateC(d):
+    if (d > 0xFF):
+        setC()
+    else:
+        clrC()
+
+def updateZ(d):
+    if (d == 0):
+        setZ()
+    else:
+        clrZ()
+
+def updateV(d1, d2, r):
+    if (~(d1^d2) & (d1^r) & 0x80):
+        setV()
+    else:
+        clrV()
+
+def updateN(d):
+    if (d & 0x80):
+        setN()
+    else:
+        clrN()
 
 ## Addressing modes ##
 
@@ -226,78 +303,270 @@ def rel():
 ## Instructions ## 
 
 # Load/Store operations
-def LDA():
-    A = rd(addr)
+def LDA(m):
+    addr = m()
+    d = rd(addr)
+    updateZ(d)
+    updateN(d)
+    A = d
     tick()
 
-def LDX():
-    X = rd(addr)
+def LDX(m):
+    addr = m()
+    d = rd(addr)
+    updateZ(d)
+    updateN(d)
+    X = d
     tick()
 
-def LDY():
-    Y = rd(addr)
+def LDY(m):
+    addr = m()
+    d = rd(addr)
+    updateZ(d)
+    updateN(d)
+    Y = d
     tick()
 
-def STA():
-def STX():
-def STY():
-# Register transfer operations
-def TXA():
-def TYA():
+def STA(m):
+    addr = m()
+    wr(addr, A)
+    tick()
+    updateZ(Y)
+    updateN(Y)
+    A = Y
+    tick()
+
 def TXS():
+    S = X
+    tick()
+
 def TAY():
+    updateZ(A)
+    updateN(A)
+    Y = A
+    tick()
+
 def TAX():
+    updateZ(A)
+    updateN(A)
+    X = A
+    tick()
+
 def TSX():
+    updateZ(S)
+    updateN(S)
+    X = S
+    tick()
+
 # Stack operations
 def PHP():
 def PLP():
 def PHA():
 def PLA():
+
 # Arithmetic/Logical operations
-def ADC():
-def SBC():
-def AND():
-def EOR():
-def ORA():
-def BIT():
+def ADC(m):
+def SBC(m):
+
+def AND(m):
+    addr = m()
+    d = rd(addr)
+    A &= d
+    updateZ(A)
+    updateN(A)
+    tick()
+
+def EOR(m):
+    addr = m()
+    d = rd(addr)
+    A ^= d
+    updateZ(A)
+    updateN(A)
+    tick()
+
+def ORA(m):
+    addr = m()
+    d = rd(addr)
+    A |= d
+    updateZ(A)
+    updateN(A)
+    tick()
+
+def BIT(m):
+    addr = m()
+    d = rd(addr)
+    updateZ(A & d)
+    P = (P & 0x3F) | (d & 0xC0)
+    tick()
+
 # Compares
-def CMP():
-def CPX():
-def CPY():
+def CMP(m):
+def CPX(m):
+def CPY(m):
+
 # Increments/Decrements
-def INC():
+def INC(m):
+    addr = m()
+    d = rd(addr)
+    tick()
+    d += 1
+    updateZ(d)
+    updateN(d)
+    tick()
+    wr(addr, d)
+    tick()
+
 def INX():
+    X += 1
+    updateZ(X)
+    updateN(X)
+    tick()
+
 def INY():
-def DEC():
+    Y += 1
+    updateZ(Y)
+    updateN(Y)
+    tick()
+
+def DEC(m):
+    addr = m()
+    d = rd(addr)
+    tick()
+    d -= 1
+    updateZ(d)
+    updateN(d)
+    tick()
+    wr(addr, d)
+    tick()
+
 def DEX():
+    X -= 1
+    updateZ(X)
+    updateN(X)
+    tick()
+
 def DEY():
+    Y -= 1
+    updateZ(Y)
+    updateN(Y)
+    tick()
+
 # Shifts
-def ASL():
-def LSR():
-def ROL():
-def ROR():
+def ASL(m):
+    addr = m()
+    d = rd(addr)
+    tick()
+    if (d & 0x80):
+        setC()
+    else:
+        clrC()
+    d <<= 1
+    updateZ(d)
+    updateN(d)
+    tick()
+    wr(addr, d)
+    tick()
+
+def LSR(m):
+    addr = m()
+    d = rd(addr)
+    tick()
+    if (d & 0x01):
+        setC()
+    else:
+        clrC()
+    d >>= 1
+    updateZ(d)
+    tick()
+    wr(addr, d)
+    tick()
+
+def ROL(m):
+    addr = m()
+    d = rd(addr)
+    tick()
+    c = P & 0x01
+    if (d & 0x80):
+        setC()
+    else:
+        clrC()
+    d = (d << 1) | c
+    updateZ(d)
+    updateN(d)
+    tick()
+    wr(addr, d)
+    tick()
+
+def ROR(m):
+    addr = m()
+    d = rd(addr)
+    tick()
+    c = P & 0x01
+    if (d & 0x01):
+        setC()
+    else:
+        clrC()
+    d = (d >> 1) | (c << 7)
+    updateZ(d)
+    updateN(d)
+    tick()
+    wr(addr, d)
+    tick()
+
 # Jumps/calls
-def JMP():
-def JSR():
+def JMP(m):
+def JSR(m):
 def RTS():
 def RTI():
+
 # Branches
-def BPL():
-def BMI():
-def BVC():
-def BVS():
-def BCC():
-def BCS():
-def BNE():
-def BEQ():
+def BPL(m):
+def BMI(m):
+def BVC(m):
+def BVS(m):
+def BCC(m):
+def BCS(m):
+def BNE(m):
+def BEQ(m):
+
 # Status register operations
 def CLC():
+    clrC()
+    tick()
+
 def CLI():
+    clrI()
+    tick()
+
 def CLV():
+    clearV()
+    tick()
+
 def CLD():
+    clrD()
+    tick()
+
 def SEC():
+    setC()
+    tick()
+
 def SEI():
+    setI()
+    tick()
+
 def SED():
+    setD()
+    tick()
+
 # System functions
 def NOP():
+    tick()
+
 def BRK():
+
+## CPU Execution ##
+
+def init():
+
+def exec():
+    
