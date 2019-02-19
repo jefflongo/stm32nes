@@ -1,7 +1,9 @@
+from mapper import mapper_rd, mapper_wr
+
 ## Registers ##
 
 # uint_16, Program counter register
-PC = 0x0000
+PC = 0xC000 #!!
 # uint_8, Stack pointer register
 S = 0xFF
 # uint_8, Accumulator register
@@ -19,7 +21,15 @@ Y = 0x00
 # [5] -: Not used
 # [6] V: Overflow flag
 # [7] N: Negative flag
-P = 0x30
+P = [0] * 8
+
+## Emulated interrupt flags ##
+
+nmi = False
+irq = False
+
+## Cycle tracker ##
+cycles = 1
 
 ## Memory ##
 
@@ -39,22 +49,34 @@ ram = [0] * 0x800
 # $8000-$FFFF (32768 bytes) - PRG-ROM
 # $FFFA-$FFFB (2 bytes)     - NMI handler routine
 # $FFFC-$FFFD (2 bytes)     - Power on reset handler routine
-# $FFFE-$FFFF (2 bytes)     - BRK handler routine
+# $FFFE-$FFFF (2 bytes)     - IRQ/BRK handler routine
 
 ## CPU tick ##
 
 def tick():
-    pass
+    global cycles
+    cycles += 1 #!!
 
 ## Read/Write ##
 
 def rd(addr):
     global ram
-    return ram[addr]
+    if (addr < 0x1800):
+        return ram[addr % 0x800]
+    elif (addr < 0x4020):
+        pass
+    elif (addr <= 0xFFFF):
+        return mapper_rd(addr)
+
 
 def wr(addr, data):
     global ram
-    ram[addr % 0x800] = data
+    if (addr < 0x1800):
+        ram[addr % 0x800] = data
+    elif (addr < 0x4020):
+        pass
+    elif (addr < 0xFFFF):
+        mapper_wr(addr, data)
 
 ## Stack operations ##
 
@@ -70,100 +92,83 @@ def pull():
 
 ## Flag adjustment ##
 
-def setC():
-    global P
-    P |= 0x01
+def setFlags(value):
+    P[0] = value & 0x01
+    P[1] = (value & 0x02) >> 1
+    P[2] = (value & 0x04) >> 2
+    P[3] = (value & 0x08) >> 3
+    P[6] = (value & 0x40) >> 6
+    P[7] = (value & 0x80) >> 7
 
-def clrC():
-    global P
-    P &= 0xFE
-
-def getC():
-    global P
-    return P & 0x01
-
-def setZ():
-    global P
-    P |= 0x02
-
-def clrZ():
-    global P
-    P &= 0xFD
-
-def getZ():
-    global P
-    return (P >> 1) & 0x01
-
-def setI():
-    global P
-    P |= 0x04
-
-def clrI():
-    global P
-    P &= 0xFB
-
-def getI():
-    return (P >> 2) & 0x01
-
-def setD():
-    global P
-    P |= 0x08
-
-def clrD():
-    global P
-    P &= 0xF7
-
-def getD():
-    global P
-    return (P >> 3) & 0x01
-
-def setV():
-    global P
-    P |= 0x40
-
-def clrV():
-    global P
-    P &= 0xBF
-
-def getV():
-    return (P >> 6) & 0x01
-
-def setN():
-    global P
-    P |= 0x80
-
-def clrN():
-    global P
-    P &= 0x7F
-
-def getN():
-    global P
-    return (P >> 7) & 0x01
+def getFlags():
+    return P[0] | (P[1] << 1) | (P[2] << 2) | (P[3] << 3) | (P[6] << 6) | (P[7] << 7)
 
 def updateC(d):
-    if (d > 0xFF):
-        setC()
-    else:
-        clrC()
+    P[0] = (d > 0xFF)
 
 def updateZ(d):
     d &= 0xFF
-    if (d == 0):
-        setZ()
-    else:
-        clrZ()
+    P[1] = (d == 0)
 
 def updateV(d1, d2, r):
-    if ((~(d1^d2) & (d1^r) & 0x80) >> 7):
-        setV()
-    else:
-        clrV()
+    P[6] = ((~(d1^d2) & (d1^r) & 0x80) >> 7)
 
 def updateN(d):
-    if ((d & 0x80) >> 7):
-        setN()
+    P[7] = ((d & 0x80) >> 7)
+
+## Interrupts ##
+
+def setNMI(value):
+    global nmi
+    nmi = value
+
+def setIRQ(value):
+    global irq
+    irq = value
+
+# Type 0 - BRK
+# Type 1 - IRQ
+# Type 2 - RESET
+# Type 3 - NMI
+def INT(type):
+    global PC, S, A, X, Y, P, nmi, irq
+    if (type == 0): 
+        PC += 1
+    tick()
+    if (type != 1):
+        push(PC >> 8)
     else:
-        clrN()
+        S -= 1
+    tick()
+    if (type != 1):
+        push(PC & 0xFF) 
+    else:
+        S -= 1
+    tick()
+    if (type == 2):
+        S -= 1
+    elif (type == 0):
+        push(getFlags() | 0x30)
+    else:
+        push(getFlags() | 0x20)
+    P[2] = 1
+    tick()
+    if (type == 3):
+        addrl = rd(0xFFFA)
+        tick()
+        addrh = rd(0xFFFB)
+    elif (type == 2):
+        addrl = rd(0xFFFC)
+        tick()
+        addrh = rd(0xFFFD)
+    else:
+        addrl = rd(0xFFFE)
+        tick()
+        addrh = rd(0xFFFF)
+    #PC = addrl | (addrh << 8) #!!
+    tick()
+    if (type == 3):
+        nmi = False
 
 ## Addressing modes ##
 
@@ -449,14 +454,14 @@ def TSX():
 def PHP():
     global PC, S, A, X, Y, P
     tick()
-    push(P | 0x10)
+    push((P[1] << 1) | P[0])
     tick()
     
 def PLP():
     global PC, S, A, X, Y, P
     tick()
     tick()
-    P = (P & 0x30) | (pull() & 0xCF)
+    setFlags(pull())
     tick()
 
 def PHA():
@@ -477,7 +482,7 @@ def ADC(m):
     global PC, S, A, X, Y, P
     addr = m()
     d = rd(addr)
-    s = A + d + (P & 0x01) # uint16
+    s = A + d + P[0] # uint16
     updateC(s)
     updateZ(s)
     updateV(A, d, s)
@@ -489,7 +494,7 @@ def SBC(m):
     global PC, S, A, X, Y, P
     addr = m()
     d = rd(addr)
-    s = A + ~d + (P & 0x01) # uint16
+    s = A + ~d + P[0] # uint16
     updateC(s)
     updateZ(s)
     updateV(A, d, s)
@@ -529,7 +534,8 @@ def BIT(m):
     addr = m()
     d = rd(addr)
     updateZ(A & d)
-    P = (P & 0x3F) | (d & 0xC0)
+    P[7] = (d & 0x80) >> 7
+    P[6] = (d & 0x40) >> 6
     tick()
 
 # Compares
@@ -622,10 +628,7 @@ def ASL(m):
     addr = m()
     d = rd(addr)
     tick()
-    if ((d & 0x80) >> 7):
-        setC()
-    else:
-        clrC()
+    P[0] = ((d & 0x80) >> 7)
     d <<= 1
     updateZ(d)
     updateN(d)
@@ -635,10 +638,7 @@ def ASL(m):
 
 def ASL_A():
     global PC, S, A, X, Y, P
-    if ((A & 0x80) >> 7):
-        setC()
-    else:
-        clrC()
+    P[0] = ((A & 0x80) >> 7)
     A <<= 1
     updateZ(A)
     updateN(A)
@@ -649,10 +649,7 @@ def LSR(m):
     addr = m()
     d = rd(addr)
     tick()
-    if (d & 0x01):
-        setC()
-    else:
-        clrC()
+    P[0] = (d & 0x01)
     d >>= 1
     updateZ(d)
     tick()
@@ -661,10 +658,7 @@ def LSR(m):
 
 def LSR_A():
     global PC, S, A, X, Y, P
-    if (A & 0x01):
-        setC()
-    else:
-        clrC()
+    P[0] = (A & 0x01)
     A >>= 1
     updateZ(A)
     tick()
@@ -674,11 +668,8 @@ def ROL(m):
     addr = m()
     d = rd(addr)
     tick()
-    c = P & 0x01
-    if ((d & 0x80) >> 7):
-        setC()
-    else:
-        clrC()
+    c = P[0]
+    P[0] = ((d & 0x80) >> 7)
     d = (d << 1) | c
     updateZ(d)
     updateN(d)
@@ -688,11 +679,8 @@ def ROL(m):
 
 def ROL_A():
     global PC, S, A, X, Y, P
-    c = P & 0x01
-    if ((A & 0x80) >> 7):
-        setC()
-    else:
-        clrC()
+    c = P[0]
+    P[0] = ((A & 0x80) >> 7)
     A = (A << 1) | c
     updateZ(A)
     updateN(A)
@@ -703,11 +691,8 @@ def ROR(m):
     addr = m()
     d = rd(addr)
     tick()
-    c = P & 0x01
-    if (d & 0x01):
-        setC()
-    else:
-        clrC()
+    c = P[0]
+    P[0] = (d & 0x01)
     d = (d >> 1) | (c << 7)
     updateZ(d)
     updateN(d)
@@ -717,11 +702,8 @@ def ROR(m):
 
 def ROR_A():
     global PC, S, A, X, Y, P
-    c = P & 0x01
-    if (A & 0x01):
-        setC()
-    else:
-        clrC()
+    c = P[0]
+    P[0] = (A & 0x01)
     A = (A >> 1) | (c << 7)
     updateZ(A)
     updateN(A)
@@ -764,7 +746,7 @@ def RTI():
     global PC, S, A, X, Y, P
     tick()
     tick()
-    P = (P & 0x30) | (pull() & 0xCF)
+    setFlags(pull())
     tick()
     addrl = pull()
     tick()
@@ -775,7 +757,7 @@ def RTI():
 # Branches
 def BPL(m):
     global PC, S, A, X, Y, P
-    if (not getN()):
+    if (not P[7]):
         addr = m()
         PC = addr
     else:
@@ -784,7 +766,7 @@ def BPL(m):
 
 def BMI(m):
     global PC, S, A, X, Y, P
-    if (getN()):
+    if (P[7]):
         addr = m()
         PC = addr
     else:
@@ -793,7 +775,7 @@ def BMI(m):
 
 def BVC(m):
     global PC, S, A, X, Y, P
-    if (not getV()):
+    if (not P[6]):
         addr = m()
         PC = addr
     else:
@@ -802,7 +784,7 @@ def BVC(m):
 
 def BVS(m):
     global PC, S, A, X, Y, P
-    if (getV()):
+    if (P[6]):
         addr = m()
         PC = addr
     else:
@@ -811,7 +793,7 @@ def BVS(m):
 
 def BCC(m):
     global PC, S, A, X, Y, P
-    if (not getC()):
+    if (not P[0]):
         addr = m()
         PC = addr
     else:
@@ -820,7 +802,7 @@ def BCC(m):
 
 def BCS(m):
     global PC, S, A, X, Y, P
-    if (getC()):
+    if (P[0]):
         addr = m()
         PC = addr
     else:
@@ -829,7 +811,7 @@ def BCS(m):
 
 def BNE(m):
     global PC, S, A, X, Y, P
-    if (not getZ()):
+    if (not P[1]):
         addr = m()
         PC = addr
     else:
@@ -838,7 +820,7 @@ def BNE(m):
 
 def BEQ(m):
     global PC, S, A, X, Y, P
-    if (getZ()):
+    if (P[1]):
         addr = m()
         PC = addr
     else:
@@ -847,219 +829,219 @@ def BEQ(m):
 
 # Status register operations
 def CLC():
-    clrC()
+    P[0] = 0
     tick()
 
 def CLI():
-    clrI()
+    P[2] = 0
     tick()
 
 def CLV():
-    clrV()
+    P[6] = 0
     tick()
 
 def CLD():
-    clrD()
+    P[3] = 0
     tick()
 
 def SEC():
-    setC()
+    P[0] = 1
     tick()
 
 def SEI():
-    setI()
+    P[2] = 1
     tick()
 
 def SED():
-    setD()
+    P[3] = 1
     tick()
 
 # System functions
 def NOP():
     tick()
-
-def BRK():
-    global PC, S, A, X, Y, P
-    PC += 1
-    tick()
-    push(PC >> 8)
-    tick()
-    push(PC & 0xFF)
-    tick()
-    push(P | 0x10)
-    setI()
-    tick()
-    addrl = rd(0xFFFE)
-    tick()
-    addrh = rd(0xFFFF)
-    PC = addrl | (addrh >> 8)
-    tick()
     
 ## CPU Execution ##
 
 def init():
-    global PC, S, A, X, Y, P
-    S = 0xFF
+    global PC, S, A, X, Y, P, nmi, irq
+    setFlags(0x04)
+    A = 0x00
+    X = 0x00
+    Y = 0x00
+    S = 0x100 #!!
+    nmi = False
+    irq = False
+    INT(2)
 
 def exec_inst():
     global PC, S, A, X, Y, P
     op = rd(PC)
     PC += 1
     tick()
-    if   (op == 0x00): BRK()
-    elif (op == 0x01): ORA(xind())
-    elif (op == 0x05): ORA(zp())
-    elif (op == 0x06): ASL(zp())
+    if   (op == 0x00): INT(0)
+    elif (op == 0x01): ORA(xind)
+    elif (op == 0x05): ORA(zp)
+    elif (op == 0x06): ASL(zp)
     elif (op == 0x08): PHP()
-    elif (op == 0x09): ORA(imm())
+    elif (op == 0x09): ORA(imm)
     elif (op == 0x0A): ASL_A()
-    elif (op == 0x0D): ORA(abs())
-    elif (op == 0x0E): ASL(abs())
-    elif (op == 0x10): BPL(rel())
-    elif (op == 0x11): ORA(indy())
-    elif (op == 0x15): ORA(zpx())
-    elif (op == 0x16): ASL(zpx())
+    elif (op == 0x0D): ORA(abs)
+    elif (op == 0x0E): ASL(abs)
+    elif (op == 0x10): BPL(rel)
+    elif (op == 0x11): ORA(indy)
+    elif (op == 0x15): ORA(zpx)
+    elif (op == 0x16): ASL(zpx)
     elif (op == 0x18): CLC()
-    elif (op == 0x19): ORA(absy())
-    elif (op == 0x1D): ORA(absx())
-    elif (op == 0x1E): ASL(absx())
+    elif (op == 0x19): ORA(absy)
+    elif (op == 0x1D): ORA(absx)
+    elif (op == 0x1E): ASL(absx)
     elif (op == 0x20): JSR()
-    elif (op == 0x21): AND(xind())
-    elif (op == 0x24): BIT(zp())
-    elif (op == 0x25): AND(zp())
-    elif (op == 0x26): ROL(zp())
+    elif (op == 0x21): AND(xind)
+    elif (op == 0x24): BIT(zp)
+    elif (op == 0x25): AND(zp)
+    elif (op == 0x26): ROL(zp)
     elif (op == 0x28): PLP()
-    elif (op == 0x29): AND(imm())
+    elif (op == 0x29): AND(imm)
     elif (op == 0x2A): ROL_A()
-    elif (op == 0x2C): BIT(abs())
-    elif (op == 0x2D): AND(abs())
-    elif (op == 0x2E): ROL(abs())
-    elif (op == 0x30): BMI(rel())
-    elif (op == 0x31): AND(indy())
-    elif (op == 0x35): AND(zpx())
-    elif (op == 0x36): ROL(zpx())
+    elif (op == 0x2C): BIT(abs)
+    elif (op == 0x2D): AND(abs)
+    elif (op == 0x2E): ROL(abs)
+    elif (op == 0x30): BMI(rel)
+    elif (op == 0x31): AND(indy)
+    elif (op == 0x35): AND(zpx)
+    elif (op == 0x36): ROL(zpx)
     elif (op == 0x38): SEC()
-    elif (op == 0x39): AND(absy())
-    elif (op == 0x3D): AND(absx())
-    elif (op == 0x3E): ROL(absx())
+    elif (op == 0x39): AND(absy)
+    elif (op == 0x3D): AND(absx)
+    elif (op == 0x3E): ROL(absx)
     elif (op == 0x40): RTI()
-    elif (op == 0x41): EOR(xind())
-    elif (op == 0x45): EOR(zp())
-    elif (op == 0x46): LSR(zp())
+    elif (op == 0x41): EOR(xind)
+    elif (op == 0x45): EOR(zp)
+    elif (op == 0x46): LSR(zp)
     elif (op == 0x48): PHA()
-    elif (op == 0x49): EOR(imm())
+    elif (op == 0x49): EOR(imm)
     elif (op == 0x4A): LSR_A()
-    elif (op == 0x4C): JMP(abs())
-    elif (op == 0x4D): EOR(abs())
-    elif (op == 0x4E): LSR(abs())
-    elif (op == 0x50): BVC(rel())
-    elif (op == 0x51): EOR(indy())
-    elif (op == 0x55): EOR(zpx())
-    elif (op == 0x56): LSR(zpx())
+    elif (op == 0x4C): JMP(abs)
+    elif (op == 0x4D): EOR(abs)
+    elif (op == 0x4E): LSR(abs)
+    elif (op == 0x50): BVC(rel)
+    elif (op == 0x51): EOR(indy)
+    elif (op == 0x55): EOR(zpx)
+    elif (op == 0x56): LSR(zpx)
     elif (op == 0x58): CLI()
-    elif (op == 0x59): EOR(absy())
-    elif (op == 0x5D): EOR(absx())
-    elif (op == 0x5E): LSR(absx())
+    elif (op == 0x59): EOR(absy)
+    elif (op == 0x5D): EOR(absx)
+    elif (op == 0x5E): LSR(absx)
     elif (op == 0x60): RTS()
-    elif (op == 0x61): ADC(xind())
-    elif (op == 0x65): ADC(zp())
-    elif (op == 0x66): ROR(zp())
+    elif (op == 0x61): ADC(xind)
+    elif (op == 0x65): ADC(zp)
+    elif (op == 0x66): ROR(zp)
     elif (op == 0x68): PLA()
-    elif (op == 0x69): ADC(imm())
+    elif (op == 0x69): ADC(imm)
     elif (op == 0x6A): ROR_A()
-    elif (op == 0x6C): JMP(ind())
-    elif (op == 0x6D): ADC(abs())
-    elif (op == 0x6E): ROR(absx())
-    elif (op == 0x70): BVS(rel())
-    elif (op == 0x71): ADC(indy())
-    elif (op == 0x75): ADC(zpx())
-    elif (op == 0x76): ROR(zpx())
+    elif (op == 0x6C): JMP(ind)
+    elif (op == 0x6D): ADC(abs)
+    elif (op == 0x6E): ROR(absx)
+    elif (op == 0x70): BVS(rel)
+    elif (op == 0x71): ADC(indy)
+    elif (op == 0x75): ADC(zpx)
+    elif (op == 0x76): ROR(zpx)
     elif (op == 0x78): SEI()
-    elif (op == 0x79): ADC(absy())
-    elif (op == 0x7D): ADC(absx())
-    elif (op == 0x7E): ROR(absx())
-    elif (op == 0x81): STA(xind())
-    elif (op == 0x84): STY(zp())
-    elif (op == 0x85): STA(zp())
-    elif (op == 0x86): STX(zp())
+    elif (op == 0x79): ADC(absy)
+    elif (op == 0x7D): ADC(absx)
+    elif (op == 0x7E): ROR(absx)
+    elif (op == 0x81): STA(xind)
+    elif (op == 0x84): STY(zp)
+    elif (op == 0x85): STA(zp)
+    elif (op == 0x86): STX(zp)
     elif (op == 0x87): DEY()
     elif (op == 0x8A): TXA()
-    elif (op == 0x8C): STY(abs())
-    elif (op == 0x8D): STA(abs())
-    elif (op == 0x8E): STX(abs())
-    elif (op == 0x90): BCC(rel())
-    elif (op == 0x91): STA(indy())
-    elif (op == 0x94): STY(zpx())
-    elif (op == 0x95): STA(zpx())
-    elif (op == 0x96): STX(zpy())
+    elif (op == 0x8C): STY(abs)
+    elif (op == 0x8D): STA(abs)
+    elif (op == 0x8E): STX(abs)
+    elif (op == 0x90): BCC(rel)
+    elif (op == 0x91): STA(indy)
+    elif (op == 0x94): STY(zpx)
+    elif (op == 0x95): STA(zpx)
+    elif (op == 0x96): STX(zpy)
     elif (op == 0x98): TYA()
-    elif (op == 0x99): STA(absy())
+    elif (op == 0x99): STA(absy)
     elif (op == 0x9A): TXS()
-    elif (op == 0x9D): STA(absx())
-    elif (op == 0xA0): LDY(imm())
-    elif (op == 0xA1): LDA(xind())
-    elif (op == 0xA2): LDX(imm())
-    elif (op == 0xA4): LDY(zp())
-    elif (op == 0xA5): LDA(zp())
-    elif (op == 0xA6): LDX(zp())
+    elif (op == 0x9D): STA(absx)
+    elif (op == 0xA0): LDY(imm)
+    elif (op == 0xA1): LDA(xind)
+    elif (op == 0xA2): LDX(imm)
+    elif (op == 0xA4): LDY(zp)
+    elif (op == 0xA5): LDA(zp)
+    elif (op == 0xA6): LDX(zp)
     elif (op == 0xA8): TAY()
-    elif (op == 0xA9): LDA(imm())
+    elif (op == 0xA9): LDA(imm)
     elif (op == 0xAA): TAX()
-    elif (op == 0xAC): LDY(abs())
-    elif (op == 0xAD): LDA(abs())
-    elif (op == 0xAE): LDX(abs())
-    elif (op == 0xB0): BCS(rel())
-    elif (op == 0xB1): LDA(indy())
-    elif (op == 0xB4): LDY(zpx())
-    elif (op == 0xB5): LDA(zpx())
-    elif (op == 0xB6): LDX(zpy())
+    elif (op == 0xAC): LDY(abs)
+    elif (op == 0xAD): LDA(abs)
+    elif (op == 0xAE): LDX(abs)
+    elif (op == 0xB0): BCS(rel)
+    elif (op == 0xB1): LDA(indy)
+    elif (op == 0xB4): LDY(zpx)
+    elif (op == 0xB5): LDA(zpx)
+    elif (op == 0xB6): LDX(zpy)
     elif (op == 0xB8): CLV()
-    elif (op == 0xB9): LDA(absy())
+    elif (op == 0xB9): LDA(absy)
     elif (op == 0xBA): TSX()
-    elif (op == 0xBC): LDY(absx())
-    elif (op == 0xBD): LDA(absx())
-    elif (op == 0xBE): LDX(absy())
-    elif (op == 0xC0): CPY(imm())
-    elif (op == 0xC1): CMP(xind())
-    elif (op == 0xC4): CPY(zp())
-    elif (op == 0xC5): CMP(zp())
-    elif (op == 0xC6): DEC(zp())
+    elif (op == 0xBC): LDY(absx)
+    elif (op == 0xBD): LDA(absx)
+    elif (op == 0xBE): LDX(absy)
+    elif (op == 0xC0): CPY(imm)
+    elif (op == 0xC1): CMP(xind)
+    elif (op == 0xC4): CPY(zp)
+    elif (op == 0xC5): CMP(zp)
+    elif (op == 0xC6): DEC(zp)
     elif (op == 0xC8): INY()
-    elif (op == 0xC9): CMP(imm())
+    elif (op == 0xC9): CMP(imm)
     elif (op == 0xCA): DEX()
-    elif (op == 0xCC): CPY(abs())
-    elif (op == 0xCD): CMP(abs())
-    elif (op == 0xCE): DEC(abs())
-    elif (op == 0xD0): BNE(rel())
-    elif (op == 0xD1): CMP(indy())
-    elif (op == 0xD5): CMP(zpx())
-    elif (op == 0xD6): DEC(zpx())
+    elif (op == 0xCC): CPY(abs)
+    elif (op == 0xCD): CMP(abs)
+    elif (op == 0xCE): DEC(abs)
+    elif (op == 0xD0): BNE(rel)
+    elif (op == 0xD1): CMP(indy)
+    elif (op == 0xD5): CMP(zpx)
+    elif (op == 0xD6): DEC(zpx)
     elif (op == 0xD8): CLD()
-    elif (op == 0xD9): CMP(absy())
-    elif (op == 0xDD): CMP(absx())
-    elif (op == 0xDE): DEC(absx())
-    elif (op == 0xE0): CPX(imm())
-    elif (op == 0xE1): SBC(xind())
-    elif (op == 0xE4): CPX(zp())
-    elif (op == 0xE5): SBC(zp())
-    elif (op == 0xE6): INC(zp())
+    elif (op == 0xD9): CMP(absy)
+    elif (op == 0xDD): CMP(absx)
+    elif (op == 0xDE): DEC(absx)
+    elif (op == 0xE0): CPX(imm)
+    elif (op == 0xE1): SBC(xind)
+    elif (op == 0xE4): CPX(zp)
+    elif (op == 0xE5): SBC(zp)
+    elif (op == 0xE6): INC(zp)
     elif (op == 0xE8): INX()
-    elif (op == 0xE9): SBC(imm())
+    elif (op == 0xE9): SBC(imm)
     elif (op == 0xEA): NOP()
-    elif (op == 0xEC): CPX(abs())
-    elif (op == 0xED): SBC(abs())
-    elif (op == 0xEE): INC(abs())
-    elif (op == 0xF0): BEQ(rel())
-    elif (op == 0xF1): SBC(indy())
-    elif (op == 0xF5): SBC(zpx())
-    elif (op == 0xF6): INC(zpx())
+    elif (op == 0xEC): CPX(abs)
+    elif (op == 0xED): SBC(abs)
+    elif (op == 0xEE): INC(abs)
+    elif (op == 0xF0): BEQ(rel)
+    elif (op == 0xF1): SBC(indy)
+    elif (op == 0xF5): SBC(zpx)
+    elif (op == 0xF6): INC(zpx)
     elif (op == 0xF8): SED()
-    elif (op == 0xF9): SBC(absy())
-    elif (op == 0xFD): SBC(absx())
-    elif (op == 0xFE): INC(absx())
+    elif (op == 0xF9): SBC(absy)
+    elif (op == 0xFD): SBC(absx)
+    elif (op == 0xFE): INC(absx)
     else:
-        print("Invalid Instruction/n/r!") 
+        print("Invalid Instruction!") 
         NOP()
 
 def run():
-    
+    global nmi, irq
+    if (nmi): 
+        INT(3)
+    elif (irq and not P[2]):
+        INT(1)
+    log()
+    exec_inst()
+
+def log():
+    global PC, S, A, X, Y, P, cycles
+    print("PC:", '%02x' % PC, " A:", '%02x' % A, " X:", '%02x' % X, " Y:", '%02x' % Y, " P:", '%02x' % (getFlags() | 1 << 5), " SP:", '%02x' % S, "CYC:", cycles)
