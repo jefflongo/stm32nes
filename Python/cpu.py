@@ -3,9 +3,9 @@ from mapper import mapper_rd, mapper_wr
 ## Registers ##
 
 # uint_16, Program counter register
-PC = 0xC000 #!!
+PC = 0x0000
 # uint_8, Stack pointer register
-S = 0xFF
+S = 0x100
 # uint_8, Accumulator register
 A = 0x00
 # uint_8, GP register, can modify stack pointer
@@ -29,7 +29,7 @@ nmi = False
 irq = False
 
 ## Cycle tracker ##
-cycles = 1
+cycles = 1 #!!
 
 ## Memory ##
 
@@ -55,7 +55,7 @@ ram = [0] * 0x800
 
 def tick():
     global cycles
-    cycles += 1 #!!
+    cycles += 1
 
 ## Read/Write ##
 
@@ -101,20 +101,20 @@ def setFlags(value):
     P[7] = (value & 0x80) >> 7
 
 def getFlags():
-    return P[0] | (P[1] << 1) | (P[2] << 2) | (P[3] << 3) | (P[6] << 6) | (P[7] << 7)
+    return P[0] | (P[1] << 1) | (P[2] << 2) | (P[3] << 3) | 1 << 5 | (P[6] << 6) | (P[7] << 7)
 
 def updateC(d):
     P[0] = (d > 0xFF)
 
 def updateZ(d):
-    d &= 0xFF
+    d &= 0xFF # !!
     P[1] = (d == 0)
 
 def updateV(d1, d2, r):
-    P[6] = ((~(d1^d2) & (d1^r) & 0x80) >> 7)
+    P[6] = ((0xFF^d1^d2) & (d1^r) & 0x80) >> 7
 
 def updateN(d):
-    P[7] = ((d & 0x80) >> 7)
+    P[7] = (d & 0x80) >> 7
 
 ## Interrupts ##
 
@@ -165,7 +165,7 @@ def INT(type):
         addrl = rd(0xFFFE)
         tick()
         addrh = rd(0xFFFF)
-    #PC = addrl | (addrh << 8) #!!
+    PC = addrl | (addrh << 8)
     tick()
     if (type == 3):
         nmi = False
@@ -196,7 +196,7 @@ def zpx():
     addr = rd(PC)
     PC += 1
     tick()
-    addr = (rd(addr) + X) % 0x100
+    addr = (addr + X) % 0x100
     tick()
     return addr
 # ZP,Y:
@@ -208,7 +208,7 @@ def zpy():
     addr = rd(PC)
     PC += 1
     tick()
-    addr = (rd(addr) + Y) % 0x100
+    addr = (addr + Y) % 0x100
     tick()
     return addr
 # Absolute:
@@ -229,7 +229,7 @@ def abs():
 # - Read the new immediate, add the old immediate with X, increment PC
 # - If the sum of old imm and X overflows, reread the address next tick
 # - Merge old imm + X with new imm, return the merged address
-def absx():
+def absx_rd():
     global PC
     addrl = rd(PC)
     PC += 1
@@ -239,14 +239,31 @@ def absx():
     PC += 1
     tick()
     if (addrl & 0xFF00 != 0):
+        addrl %= 0x100
+        addrh = (addrh + 1) % 0x100
         tick()
-    return addrl + (addrh << 8)
+    return addrl | (addrh << 8)
+# Must incur a tick regardless of page boundary cross
+def absx_wr():
+    global PC
+    addrl = rd(PC)
+    PC += 1
+    tick()
+    addrh = rd(PC)
+    addrl += X
+    PC += 1
+    tick()
+    if (addrl & 0xFF00 != 0):
+        addrl %= 0x100
+        addrh = (addrh + 1) % 0x100
+    tick()
+    return addrl | (addrh << 8)
 # Absolute,Y:
 # - Read the immediate, increment PC
 # - Read the new immediate, add the old immediate with Y, increment PC
 # - If the sum of old imm and Y overflows, reread the address next tick
 # - Merge old imm + Y with new imm, return the merged address
-def absy():
+def absy_rd():
     global PC
     addrl = rd(PC)
     PC += 1
@@ -256,8 +273,25 @@ def absy():
     PC += 1
     tick()
     if (addrl & 0xFF00 != 0):
+        addrl %= 0x100
+        addrh = (addrh + 1) % 0x100
         tick()
-    return addrl + (addrh << 8)
+    return addrl | (addrh << 8)
+# Must incur a tick regardless of page boundary cross
+def absy_wr():
+    global PC
+    addrl = rd(PC)
+    PC += 1
+    tick()
+    addrh = rd(PC)
+    addrl += Y
+    PC += 1
+    tick()
+    if (addrl & 0xFF00 != 0):
+        addrl %= 0x100
+        addrh = (addrh + 1) % 0x100
+    tick()
+    return addrl | (addrh << 8)
 # Absolute Indirect (JMP only):
 # - Read imm (pointer low), increment PC
 # - Read imm (pointer high), increment PC
@@ -287,11 +321,12 @@ def xind():
     ptr = rd(PC)
     PC += 1
     tick()
-    ptr = (rd(ptr) + X) % 0x100
+    ptr = (ptr + X) % 0x100
     tick()
     addrl = rd(ptr)
     tick()
     addrh = rd((ptr + 1) % 0x100)
+    tick()
     return addrl | (addrh << 8)
 # Y,Indirect:
 # - Read imm (pointer), increment PC
@@ -303,11 +338,12 @@ def yind():
     ptr = rd(PC)
     PC += 1
     tick()
-    ptr = (rd(ptr) + Y) % 0x100
+    ptr = (ptr + Y) % 0x100
     tick()
     addrl = rd(ptr)
     tick()
     addrh = rd((ptr + 1) % 0x100)
+    tick()
     return addrl | (addrh << 8)
 # Indirect,X:
 # - Read imm (pointer), increment PC
@@ -326,15 +362,17 @@ def indx():
     addrl += X
     tick()
     if (addrl & 0xFF00 != 0):
+        addrl %= 0x100
+        addrh = (addrh + 1) % 0x100
         tick()
-    return addrl + (addrh << 8)
+    return addrl | (addrh << 8)
 # Indirect,Y:
 # - Read imm (pointer), increment PC
 # - Read low byte from pointer on zero page
 # - Read high byte from pointer on zero page, add Y to low byte
 # - If the sum of low byte and X overflows, reread the address next tick
 # - Return the merged address
-def indy():
+def indy_rd():
     global PC
     ptr = rd(PC)
     PC += 1
@@ -345,8 +383,26 @@ def indy():
     addrl += Y
     tick()
     if (addrl & 0xFF00 != 0):
+        addrl %= 0x100
+        addrh = (addrh + 1) % 0x100
         tick()
-    return addrl + (addrh << 8)
+    return addrl | (addrh << 8)
+# Must incur a tick regardless of page boundary cross
+def indy_wr():
+    global PC
+    ptr = rd(PC)
+    PC += 1
+    tick()
+    addrl = rd(ptr)
+    tick()
+    addrh = rd((ptr + 1) % 0x100)
+    addrl += Y
+    tick()
+    if (addrl & 0xFF00 != 0):
+        addrl %= 0x100
+        addrh = (addrh + 1) % 0x100
+    tick()
+    return addrl | (addrh << 8)
 # Relative (Assuming branch taken):
 # - Read imm (offset), increment PC
 # - Add offset to PC
@@ -454,7 +510,7 @@ def TSX():
 def PHP():
     global PC, S, A, X, Y, P
     tick()
-    push((P[1] << 1) | P[0])
+    push(getFlags() | 0x30)
     tick()
     
 def PLP():
@@ -475,7 +531,9 @@ def PLA():
     tick()
     tick()
     A = pull()
-    tick()
+    updateZ(A)
+    updateN(A)
+    tick() 
 
 # Arithmetic/Logical operations
 def ADC(m):
@@ -487,19 +545,19 @@ def ADC(m):
     updateZ(s)
     updateV(A, d, s)
     updateN(s)
-    A = s # cast s to uint8
+    A = s % 0x100 # cast s to uint8
     tick()
 
 def SBC(m):
     global PC, S, A, X, Y, P
     addr = m()
     d = rd(addr)
-    s = A + ~d + P[0] # uint16
+    s = A + (d ^ 0xFF) + P[0] # uint16
     updateC(s)
     updateZ(s)
-    updateV(A, d, s)
+    updateV(A, (d ^ 0xFF), s)
     updateN(s)
-    A = s # cast s to uint8
+    A = s % 0x100 # cast s to uint8
     tick()
 
 def AND(m):
@@ -543,7 +601,7 @@ def CMP(m):
     global PC, S, A, X, Y, P
     addr = m()
     d = rd(addr)
-    s = A + ~d + 1
+    s = A + (d ^ 0xFF) + 1
     updateC(s)
     updateZ(s)
     updateN(s)
@@ -553,7 +611,7 @@ def CPX(m):
     global PC, S, A, X, Y, P
     addr = m()
     d = rd(addr)
-    s = X + ~d + 1
+    s = X + (d ^ 0xFF) + 1
     updateC(s)
     updateZ(s)
     updateN(s)
@@ -563,7 +621,7 @@ def CPY(m):
     global PC, S, A, X, Y, P
     addr = m()
     d = rd(addr)
-    s = Y + ~d + 1
+    s = Y + (d ^ 0xFF) + 1
     updateC(s)
     updateZ(s)
     updateN(s)
@@ -575,7 +633,7 @@ def INC(m):
     addr = m()
     d = rd(addr)
     tick()
-    d += 1
+    d = (d + 1) % 0x100 # !!
     updateZ(d)
     updateN(d)
     tick()
@@ -584,14 +642,14 @@ def INC(m):
 
 def INX():
     global PC, S, A, X, Y, P
-    X += 1
+    X = (X + 1) % 0x100 # !!
     updateZ(X)
     updateN(X)
     tick()
 
 def INY():
     global PC, S, A, X, Y, P
-    Y += 1
+    Y = (Y + 1) % 0x100 # !!
     updateZ(Y)
     updateN(Y)
     tick()
@@ -601,7 +659,7 @@ def DEC(m):
     addr = m()
     d = rd(addr)
     tick()
-    d -= 1
+    d = (d - 1) % 0x100 # !!
     updateZ(d)
     updateN(d)
     tick()
@@ -610,14 +668,14 @@ def DEC(m):
 
 def DEX():
     global PC, S, A, X, Y, P
-    X -= 1
+    X = (X - 1) % 0x100 # !!
     updateZ(X)
     updateN(X)
     tick()
 
 def DEY():
     global PC, S, A, X, Y, P
-    Y -= 1
+    Y = (Y - 1) % 0x100 # !!
     updateZ(Y)
     updateN(Y)
     tick()
@@ -630,6 +688,7 @@ def ASL(m):
     tick()
     P[0] = ((d & 0x80) >> 7)
     d <<= 1
+    d &= 0xFF # !!
     updateZ(d)
     updateN(d)
     tick()
@@ -640,6 +699,7 @@ def ASL_A():
     global PC, S, A, X, Y, P
     P[0] = ((A & 0x80) >> 7)
     A <<= 1
+    A &= 0xFF # !!
     updateZ(A)
     updateN(A)
     tick()
@@ -652,6 +712,7 @@ def LSR(m):
     P[0] = (d & 0x01)
     d >>= 1
     updateZ(d)
+    updateN(d)
     tick()
     wr(addr, d)
     tick()
@@ -661,6 +722,7 @@ def LSR_A():
     P[0] = (A & 0x01)
     A >>= 1
     updateZ(A)
+    updateN(A)
     tick()
 
 def ROL(m):
@@ -671,6 +733,7 @@ def ROL(m):
     c = P[0]
     P[0] = ((d & 0x80) >> 7)
     d = (d << 1) | c
+    d &= 0xFF # !!
     updateZ(d)
     updateN(d)
     tick()
@@ -682,6 +745,7 @@ def ROL_A():
     c = P[0]
     P[0] = ((A & 0x80) >> 7)
     A = (A << 1) | c
+    A &= 0xFF # !!
     updateZ(A)
     updateN(A)
     tick()
@@ -736,7 +800,6 @@ def RTS():
     addrl = pull()
     tick()
     addrh = pull()
-    tick()
     PC = addrl | (addrh << 8)
     tick()
     PC += 1
@@ -857,6 +920,10 @@ def SED():
     tick()
 
 # System functions
+def NOP_M(m):
+    addr = m()
+    tick()
+
 def NOP():
     tick()
     
@@ -864,11 +931,11 @@ def NOP():
 
 def init():
     global PC, S, A, X, Y, P, nmi, irq
-    setFlags(0x04)
+    setFlags(0x24)
     A = 0x00
     X = 0x00
     Y = 0x00
-    S = 0x100 #!!
+    S = 0x100
     nmi = False
     irq = False
     INT(2)
@@ -888,13 +955,13 @@ def exec_inst():
     elif (op == 0x0D): ORA(abs)
     elif (op == 0x0E): ASL(abs)
     elif (op == 0x10): BPL(rel)
-    elif (op == 0x11): ORA(indy)
+    elif (op == 0x11): ORA(indy_rd)
     elif (op == 0x15): ORA(zpx)
     elif (op == 0x16): ASL(zpx)
     elif (op == 0x18): CLC()
-    elif (op == 0x19): ORA(absy)
-    elif (op == 0x1D): ORA(absx)
-    elif (op == 0x1E): ASL(absx)
+    elif (op == 0x19): ORA(absy_rd)
+    elif (op == 0x1D): ORA(absx_rd)
+    elif (op == 0x1E): ASL(absx_wr)
     elif (op == 0x20): JSR()
     elif (op == 0x21): AND(xind)
     elif (op == 0x24): BIT(zp)
@@ -907,13 +974,13 @@ def exec_inst():
     elif (op == 0x2D): AND(abs)
     elif (op == 0x2E): ROL(abs)
     elif (op == 0x30): BMI(rel)
-    elif (op == 0x31): AND(indy)
+    elif (op == 0x31): AND(indy_rd)
     elif (op == 0x35): AND(zpx)
     elif (op == 0x36): ROL(zpx)
     elif (op == 0x38): SEC()
-    elif (op == 0x39): AND(absy)
-    elif (op == 0x3D): AND(absx)
-    elif (op == 0x3E): ROL(absx)
+    elif (op == 0x39): AND(absy_rd)
+    elif (op == 0x3D): AND(absx_rd)
+    elif (op == 0x3E): ROL(absx_wr)
     elif (op == 0x40): RTI()
     elif (op == 0x41): EOR(xind)
     elif (op == 0x45): EOR(zp)
@@ -925,13 +992,13 @@ def exec_inst():
     elif (op == 0x4D): EOR(abs)
     elif (op == 0x4E): LSR(abs)
     elif (op == 0x50): BVC(rel)
-    elif (op == 0x51): EOR(indy)
+    elif (op == 0x51): EOR(indy_rd)
     elif (op == 0x55): EOR(zpx)
     elif (op == 0x56): LSR(zpx)
     elif (op == 0x58): CLI()
-    elif (op == 0x59): EOR(absy)
-    elif (op == 0x5D): EOR(absx)
-    elif (op == 0x5E): LSR(absx)
+    elif (op == 0x59): EOR(absy_rd)
+    elif (op == 0x5D): EOR(absx_rd)
+    elif (op == 0x5E): LSR(absx_wr)
     elif (op == 0x60): RTS()
     elif (op == 0x61): ADC(xind)
     elif (op == 0x65): ADC(zp)
@@ -941,33 +1008,33 @@ def exec_inst():
     elif (op == 0x6A): ROR_A()
     elif (op == 0x6C): JMP(ind)
     elif (op == 0x6D): ADC(abs)
-    elif (op == 0x6E): ROR(absx)
+    elif (op == 0x6E): ROR(abs)
     elif (op == 0x70): BVS(rel)
-    elif (op == 0x71): ADC(indy)
+    elif (op == 0x71): ADC(indy_rd)
     elif (op == 0x75): ADC(zpx)
     elif (op == 0x76): ROR(zpx)
     elif (op == 0x78): SEI()
-    elif (op == 0x79): ADC(absy)
-    elif (op == 0x7D): ADC(absx)
-    elif (op == 0x7E): ROR(absx)
+    elif (op == 0x79): ADC(absy_rd)
+    elif (op == 0x7D): ADC(absx_rd)
+    elif (op == 0x7E): ROR(absx_wr)
     elif (op == 0x81): STA(xind)
     elif (op == 0x84): STY(zp)
     elif (op == 0x85): STA(zp)
     elif (op == 0x86): STX(zp)
-    elif (op == 0x87): DEY()
+    elif (op == 0x88): DEY()
     elif (op == 0x8A): TXA()
     elif (op == 0x8C): STY(abs)
     elif (op == 0x8D): STA(abs)
     elif (op == 0x8E): STX(abs)
     elif (op == 0x90): BCC(rel)
-    elif (op == 0x91): STA(indy)
+    elif (op == 0x91): STA(indy_wr)
     elif (op == 0x94): STY(zpx)
     elif (op == 0x95): STA(zpx)
     elif (op == 0x96): STX(zpy)
     elif (op == 0x98): TYA()
-    elif (op == 0x99): STA(absy)
+    elif (op == 0x99): STA(absy_wr)
     elif (op == 0x9A): TXS()
-    elif (op == 0x9D): STA(absx)
+    elif (op == 0x9D): STA(absx_wr)
     elif (op == 0xA0): LDY(imm)
     elif (op == 0xA1): LDA(xind)
     elif (op == 0xA2): LDX(imm)
@@ -981,16 +1048,16 @@ def exec_inst():
     elif (op == 0xAD): LDA(abs)
     elif (op == 0xAE): LDX(abs)
     elif (op == 0xB0): BCS(rel)
-    elif (op == 0xB1): LDA(indy)
+    elif (op == 0xB1): LDA(indy_rd)
     elif (op == 0xB4): LDY(zpx)
     elif (op == 0xB5): LDA(zpx)
     elif (op == 0xB6): LDX(zpy)
     elif (op == 0xB8): CLV()
-    elif (op == 0xB9): LDA(absy)
+    elif (op == 0xB9): LDA(absy_rd)
     elif (op == 0xBA): TSX()
-    elif (op == 0xBC): LDY(absx)
-    elif (op == 0xBD): LDA(absx)
-    elif (op == 0xBE): LDX(absy)
+    elif (op == 0xBC): LDY(absx_rd)
+    elif (op == 0xBD): LDA(absx_rd)
+    elif (op == 0xBE): LDX(absy_rd)
     elif (op == 0xC0): CPY(imm)
     elif (op == 0xC1): CMP(xind)
     elif (op == 0xC4): CPY(zp)
@@ -1003,13 +1070,13 @@ def exec_inst():
     elif (op == 0xCD): CMP(abs)
     elif (op == 0xCE): DEC(abs)
     elif (op == 0xD0): BNE(rel)
-    elif (op == 0xD1): CMP(indy)
+    elif (op == 0xD1): CMP(indy_rd)
     elif (op == 0xD5): CMP(zpx)
     elif (op == 0xD6): DEC(zpx)
     elif (op == 0xD8): CLD()
-    elif (op == 0xD9): CMP(absy)
-    elif (op == 0xDD): CMP(absx)
-    elif (op == 0xDE): DEC(absx)
+    elif (op == 0xD9): CMP(absy_rd)
+    elif (op == 0xDD): CMP(absx_rd)
+    elif (op == 0xDE): DEC(absx_wr)
     elif (op == 0xE0): CPX(imm)
     elif (op == 0xE1): SBC(xind)
     elif (op == 0xE4): CPX(zp)
@@ -1022,13 +1089,13 @@ def exec_inst():
     elif (op == 0xED): SBC(abs)
     elif (op == 0xEE): INC(abs)
     elif (op == 0xF0): BEQ(rel)
-    elif (op == 0xF1): SBC(indy)
+    elif (op == 0xF1): SBC(indy_rd)
     elif (op == 0xF5): SBC(zpx)
     elif (op == 0xF6): INC(zpx)
     elif (op == 0xF8): SED()
-    elif (op == 0xF9): SBC(absy)
-    elif (op == 0xFD): SBC(absx)
-    elif (op == 0xFE): INC(absx)
+    elif (op == 0xF9): SBC(absy_rd)
+    elif (op == 0xFD): SBC(absx_rd)
+    elif (op == 0xFE): INC(absx_wr)
     else:
         print("Invalid Instruction!") 
         NOP()
@@ -1039,9 +1106,15 @@ def run():
         INT(3)
     elif (irq and not P[2]):
         INT(1)
-    log()
     exec_inst()
 
 def log():
     global PC, S, A, X, Y, P, cycles
-    print("PC:", '%02x' % PC, " A:", '%02x' % A, " X:", '%02x' % X, " Y:", '%02x' % Y, " P:", '%02x' % (getFlags() | 1 << 5), " SP:", '%02x' % S, "CYC:", cycles)
+    s = "PC:" + ('%04x' % PC) + \
+    " A:" + ('%02x' % A) + \
+    " X:" + ('%02x' % X) + \
+    " Y:" + ('%02x' % Y) + \
+    " P:" + ('%02x' % getFlags()) + \
+    " SP:" + ('%02x' % S) + \
+    " CYC:" + str(cycles)
+    return s.upper()

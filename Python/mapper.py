@@ -1,5 +1,7 @@
+# Represents 0x4020 - 0xFFFF
 mem = [0] * 0xBFE0
 
+# Offset of addr - 0x8000 + 0x10 in the ROM
 def mapper_rd(addr):
     return mem[addr - 0x4020]
 
