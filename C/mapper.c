@@ -82,23 +82,23 @@ int load_rom(char* filename) {
 	byte = (u8)fgetc(rom);
 
 	// Load PRG data
-	prg = malloc(prgSize * 0x4000, sizeof(u8));
+	prg = malloc(prgSize * 0x4000 * sizeof(u8));
 	for (int i = 0; i < prgSize * 0x4000; i++) {
 		*(prg + i) = (u8)fgetc(rom);
 	}
 	// Load CHR data
-	chr = malloc(chrSize * 0x2000, sizeof(u8));
+	chr = malloc(chrSize * 0x2000 * sizeof(u8));
 	for (int i = 0; i < chrSize * 0x2000; i++) {
 		*(chr + i) = (u8)fgetc(rom);
 	}
 	// Allocate PRG RAM
-	if (hasPrgRam) prgRam = malloc(prgRamSize * 0x2000, sizeof(u8));
+	if (hasPrgRam) prgRam = malloc(prgRamSize * 0x2000 * sizeof(u8));
 
 	fclose(rom);
 
 	switch (mapper) {
 		case 0:
-			mapper0_init();
+			mapper0_init(&prgBank, &chrBank);
 			break;
 		default:
 			printf("Mapper not supported!\n");

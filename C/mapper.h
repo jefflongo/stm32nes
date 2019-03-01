@@ -2,9 +2,11 @@
 #define MAPPER_H_
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include "mappers/mapper0.h"
 
 typedef uint16_t u16;
 typedef uint8_t u8;
