@@ -131,11 +131,11 @@ void updateN(u8 d) {
 
 /* Interrupts */
 
-void setNMI(u8 value) {
+void cpu_setNMI(u8 value) {
 	nmi = value;
 }
 
-void setIRQ(u8 value) {
+void cpu_setIRQ(u8 value) {
 	irq = value;
 }
 
@@ -936,7 +936,7 @@ void NOP() {
 
 /* CPU Execution */
 
-void init() {
+void cpu_init() {
 	setFlags(0x24);
 	A = 0x00;
 	X = 0x00;
@@ -1036,7 +1036,7 @@ void exec_inst() {
 	}
 }
 
-void run() {
+void cpu_run() {
 	if (nmi) {
 		INT_NMI();
 	}
@@ -1046,7 +1046,7 @@ void run() {
 	exec_inst();
 }
 
-void log(char* s, int length) {
+void cpu_log(char* s, int length) {
 	if (length < 100) return;
 	char buffer[10];
 	strcpy(s, "PC:");

@@ -9,13 +9,13 @@ void nestest() {
 		printf("File not found!\n");
 		return;
 	}
-	init();
+	cpu_init();
 	char state[100];
 	char exp[100];
 	char line[100];
 	char buffer[10];
 	while (fgets(line, sizeof(line), test)) {
-		log(state, sizeof(state));
+		cpu_log(state, sizeof(state));
 		strcpy(exp, "PC:");
 		strncpy(buffer, line, 4);
 		buffer[4] = '\0';
@@ -51,11 +51,21 @@ void nestest() {
 			getchar();
 		}
 		printf("%s\n", state);
-		run();
+		cpu_run();
 	}
 }
 
 int main() {
 	nestest();
+	
+	char state[100];
+	load_rom("smb.nes");
+	cpu_init();
+	while (1) {
+		cpu_log(state, sizeof(state));
+		printf("%s\n", state);
+		cpu_run();
+	}
+	
     return 0;
 }

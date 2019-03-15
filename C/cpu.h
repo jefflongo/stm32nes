@@ -11,10 +11,10 @@ typedef uint16_t u16;
 typedef uint8_t u8;
 typedef u16 (*mode)();
 
-void init();
-void run();
-void setNMI(u8 value);
-void setIRQ(u8 value);
-void log(char* s, int length);
+void cpu_init();
+void cpu_run();
+void cpu_setNMI(u8 value);
+void cpu_setIRQ(u8 value);
+void cpu_log(char* s, int length);
 
 #endif // CPU_H_
