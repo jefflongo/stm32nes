@@ -1,11 +1,11 @@
 #include "NES/mappers/mapper0.h"
 
-static u8 *prgBank, *chrBank;
+static u8 *prg_bank, *chr_bank;
 
-void mapper0_init(u8* pBank, u8* cBank) {
-	prgBank = pBank;
-	chrBank = cBank;
+void mapper0_init(u8* p_Bank, u8* c_bank) {
+    prg_bank = p_bank;
+    chr_bank = c_bank;
 
-	*prgBank = 0;
-	*chrBank = 0;
+    *prg_bank = 0;
+    *chr_bank = 0;
 }
