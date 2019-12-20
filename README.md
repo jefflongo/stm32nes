@@ -1,2 +1,2 @@
-# STM32-NES
-NES Emulator for STM32
+# STM32NES
+C based NES emulator to eventually be ported to STM32
