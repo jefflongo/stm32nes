@@ -6,24 +6,26 @@
 
 typedef u16 (*mode)();
 
+// Processor status flag definitions
+enum {
+    STATUS_CARRY,       // [0] C: Carry flag
+    STATUS_ZERO,        // [1] Z: Zero flag
+    STATUS_INT_DISABLE, // [2] I: Interrupt disable
+    STATUS_DECIMAL,     // [3] D: Decimal mode, can be set/cleared but not used
+    STATUS_BREAK,       // [4] B: Break command
+    STATUS_UNUSED,      // [5] -: Not used, wired to 1
+    STATUS_OVERFLOW,    // [6] V: Overflow flag
+    STATUS_NEGATIVE,    // [7] N: Negative flag
+};
+
 /* Registers */
 
 // Program counter
 static u16 PC;
 // Stack pointer, Accumulator, X (stack access), Y (no stack access)
 static u8 S, A, X, Y;
-/*
- * Processor status flags:
- * [0] C: Carry flag
- * [1] Z: Zero flag
- * [2] I: Interrupt disable
- * [3] D: Decimal mode, can be set/cleared but not used
- * [4] B: Break command
- * [5] -: Not used
- * [6] V: Overflow flag
- * [7] N: Negative flag
- */
 
+// Processor status flags
 static bool P[8];
 
 /* Emulated interrupt flags */
@@ -122,33 +124,36 @@ static u8 pull(void) {
 /* Flag adjustment */
 
 static void set_flags(u8 state) {
-    P[0] = (state & 0x01);
-    P[1] = (state & 0x02) >> 1;
-    P[2] = (state & 0x04) >> 2;
-    P[3] = (state & 0x08) >> 3;
-    P[6] = (state & 0x40) >> 6;
-    P[7] = (state & 0x80) >> 7;
+    P[STATUS_CARRY] = (state & 0x01);
+    P[STATUS_ZERO] = (state & 0x02) >> 1;
+    P[STATUS_INT_DISABLE] = (state & 0x04) >> 2;
+    P[STATUS_DECIMAL] = (state & 0x08) >> 3;
+    // Note: BREAK and UNUSED flags are unsettable
+    P[STATUS_OVERFLOW] = (state & 0x40) >> 6;
+    P[STATUS_NEGATIVE] = (state & 0x80) >> 7;
 }
 
 static u8 get_flags(void) {
-    return P[0] | (P[1] << 1) | (P[2] << 2) | (P[3] << 3) | 1 << 5 |
-           (P[6] << 6) | (P[7] << 7);
+    // Note: BREAK flag is unreturnable, UNUSED flag is always 1
+    return P[STATUS_CARRY] | (P[STATUS_ZERO] << 1) |
+           (P[STATUS_INT_DISABLE] << 2) | (P[STATUS_DECIMAL] << 3) | 1 << 5 |
+           (P[STATUS_OVERFLOW] << 6) | (P[STATUS_NEGATIVE] << 7);
 }
 
 static inline void updateC(u16 r) {
-    P[0] = r > 0xFF;
+    P[STATUS_CARRY] = r > 0xFF;
 }
 
 static inline void updateZ(u8 d) {
-    P[1] = d == 0;
+    P[STATUS_ZERO] = d == 0;
 }
 
 static inline void updateV(u8 d1, u8 d2, u16 r) {
-    P[6] = (0xFF ^ d1 ^ d2) & (d1 ^ r) & 0x80;
+    P[STATUS_OVERFLOW] = (0xFF ^ d1 ^ d2) & (d1 ^ r) & 0x80;
 }
 
 static inline void updateN(u8 d) {
-    P[7] = d & 0x80;
+    P[STATUS_NEGATIVE] = d & 0x80;
 }
 
 /* Interrupts */
@@ -162,9 +167,9 @@ static void INT_NMI(void) {
     tick();
     push(PC & 0xFF);
     tick();
-    push(get_flags() | 0x20);
+    push(get_flags() | (1 << STATUS_UNUSED));
     tick();
-    P[2] = 1;
+    P[STATUS_INT_DISABLE] = 1;
     u8 addrl = rd(0xFFFA);
     tick();
     u8 addrh = rd(0xFFFB);
@@ -183,7 +188,7 @@ static void INT_RESET(void) {
     tick();
     tick();
     tick();
-    P[2] = 1;
+    P[STATUS_INT_DISABLE] = 1;
     u8 addrl = rd(0xFFFC);
     tick();
     u8 addrh = rd(0xFFFD);
@@ -200,9 +205,9 @@ static void INT_IRQ(void) {
     tick();
     push(PC & 0xFF);
     tick();
-    push(get_flags() | 0x20);
+    push(get_flags() | (1 << STATUS_UNUSED));
     tick();
-    P[2] = 1;
+    P[STATUS_INT_DISABLE] = 1;
     u8 addrl = rd(0xFFFE);
     tick();
     u8 addrh = rd(0xFFFF);
@@ -217,9 +222,9 @@ static void BRK(void) {
     push(PC >> 8);
     tick();
     push(PC & 0xFF);
-    push(get_flags() | 0x30);
+    push(get_flags() | (1 << STATUS_BREAK) | (1 << STATUS_UNUSED));
     tick();
-    P[2] = 1;
+    P[STATUS_INT_DISABLE] = 1;
     u8 addrl = rd(0xFFFE);
     tick();
     u8 addrh = rd(0xFFFF);
@@ -490,7 +495,7 @@ static void TSX(void) {
 static void PHP(void) {
     // Throw away next byte
     tick();
-    push(get_flags() | 0x30);
+    push(get_flags() | (1 << STATUS_BREAK) | (1 << STATUS_UNUSED));
     tick();
 }
 
@@ -524,7 +529,7 @@ static void PLA(void) {
 // Arithmetic / Logical operations
 static void _ADC(mode m) {
     u8 d = rd(m());
-    u16 s = A + d + P[0];
+    u16 s = A + d + P[STATUS_CARRY];
     updateC(s);
     updateZ((u8)s);
     updateV(A, d, s);
@@ -535,7 +540,7 @@ static void _ADC(mode m) {
 
 static void SBC(mode m) {
     u8 d = rd(m());
-    u16 s = A + (d ^ 0xFF) + P[0];
+    u16 s = A + (d ^ 0xFF) + P[STATUS_CARRY];
     updateC(s);
     updateZ((u8)s);
     updateV(A, (d ^ 0xFF), s);
@@ -571,8 +576,8 @@ static void ORA(mode m) {
 static void BIT(mode m) {
     u8 d = rd(m());
     updateZ(A & d);
-    P[7] = d & 0x80;
-    P[6] = d & 0x40;
+    P[STATUS_NEGATIVE] = d & 0x80;
+    P[STATUS_OVERFLOW] = d & 0x40;
     tick();
 }
 
@@ -662,7 +667,7 @@ static void ASL(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    P[0] = d & 0x80;
+    P[STATUS_CARRY] = d & 0x80;
     d <<= 1;
     updateZ(d);
     updateN(d);
@@ -672,7 +677,7 @@ static void ASL(mode m) {
 }
 
 static void ASL_A(void) {
-    P[0] = A & 0x80;
+    P[STATUS_CARRY] = A & 0x80;
     A <<= 1;
     updateZ(A);
     updateN(A);
@@ -683,7 +688,7 @@ static void LSR(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    P[0] = d & 0x01;
+    P[STATUS_CARRY] = d & 0x01;
     d >>= 1;
     updateZ(d);
     updateN(d);
@@ -693,7 +698,7 @@ static void LSR(mode m) {
 }
 
 static void LSR_A(void) {
-    P[0] = A & 0x01;
+    P[STATUS_CARRY] = A & 0x01;
     A >>= 1;
     updateZ(A);
     updateN(A);
@@ -704,8 +709,8 @@ static void ROL(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    u8 c = P[0];
-    P[0] = d & 0x80;
+    u8 c = P[STATUS_CARRY];
+    P[STATUS_CARRY] = d & 0x80;
     d = (d << 1) | c;
     updateZ(d);
     updateN(d);
@@ -715,8 +720,8 @@ static void ROL(mode m) {
 }
 
 static void ROL_A(void) {
-    u8 c = P[0];
-    P[0] = A & 0x80;
+    u8 c = P[STATUS_CARRY];
+    P[STATUS_CARRY] = A & 0x80;
     A = (A << 1) | c;
     updateZ(A);
     updateN(A);
@@ -727,8 +732,8 @@ static void ROR(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    u8 c = P[0];
-    P[0] = d & 0x01;
+    u8 c = P[STATUS_CARRY];
+    P[STATUS_CARRY] = d & 0x01;
     d = (d >> 1) | (c << 7);
     updateZ(d);
     updateN(d);
@@ -738,8 +743,8 @@ static void ROR(mode m) {
 }
 
 static void ROR_A(void) {
-    u8 c = P[0];
-    P[0] = (A & 0x01);
+    u8 c = P[STATUS_CARRY];
+    P[STATUS_CARRY] = (A & 0x01);
     A = (A >> 1) | (c << 7);
     updateZ(A);
     updateN(A);
@@ -795,7 +800,7 @@ static void RTI(void) {
 
 // Branches
 static void BPL(mode m) {
-    if (!P[7]) {
+    if (!P[STATUS_NEGATIVE]) {
         PC = m();
     } else {
         PC++;
@@ -804,7 +809,7 @@ static void BPL(mode m) {
 }
 
 static void BMI(mode m) {
-    if (P[7]) {
+    if (P[STATUS_NEGATIVE]) {
         PC = m();
     } else {
         PC++;
@@ -813,7 +818,7 @@ static void BMI(mode m) {
 }
 
 static void BVC(mode m) {
-    if (!P[6]) {
+    if (!P[STATUS_OVERFLOW]) {
         PC = m();
     } else {
         PC++;
@@ -822,7 +827,7 @@ static void BVC(mode m) {
 }
 
 static void BVS(mode m) {
-    if (P[6]) {
+    if (P[STATUS_OVERFLOW]) {
         PC = m();
     } else {
         PC++;
@@ -831,7 +836,7 @@ static void BVS(mode m) {
 }
 
 static void BCC(mode m) {
-    if (!P[0]) {
+    if (!P[STATUS_CARRY]) {
         PC = m();
     } else {
         PC++;
@@ -840,7 +845,7 @@ static void BCC(mode m) {
 }
 
 static void BCS(mode m) {
-    if (P[0]) {
+    if (P[STATUS_CARRY]) {
         PC = m();
     } else {
         PC++;
@@ -849,7 +854,7 @@ static void BCS(mode m) {
 }
 
 static void BNE(mode m) {
-    if (!P[1]) {
+    if (!P[STATUS_ZERO]) {
         PC = m();
     } else {
         PC++;
@@ -858,7 +863,7 @@ static void BNE(mode m) {
 }
 
 static void BEQ(mode m) {
-    if (P[1]) {
+    if (P[STATUS_ZERO]) {
         PC = m();
     } else {
         PC++;
@@ -868,37 +873,37 @@ static void BEQ(mode m) {
 
 // Status register operations
 static void CLC(void) {
-    P[0] = 0;
+    P[STATUS_CARRY] = 0;
     tick();
 }
 
 static void CLI(void) {
-    P[2] = 0;
+    P[STATUS_INT_DISABLE] = 0;
     tick();
 }
 
 static void CLV(void) {
-    P[6] = 0;
+    P[STATUS_OVERFLOW] = 0;
     tick();
 }
 
 static void CLD(void) {
-    P[3] = 0;
+    P[STATUS_DECIMAL] = 0;
     tick();
 }
 
 static void SEC(void) {
-    P[0] = 1;
+    P[STATUS_CARRY] = 1;
     tick();
 }
 
 static void SEI(void) {
-    P[2] = 1;
+    P[STATUS_INT_DISABLE] = 1;
     tick();
 }
 
 static void SED(void) {
-    P[3] = 1;
+    P[STATUS_DECIMAL] = 1;
     tick();
 }
 
@@ -957,7 +962,7 @@ static void ISC(mode m) {
     u8 d = rd(addr);
     tick();
     d++;
-    u16 s = A + (d ^ 0xFF) + P[0];
+    u16 s = A + (d ^ 0xFF) + P[STATUS_CARRY];
     updateC(s);
     updateZ((u8)s);
     updateV(A, (d ^ 0xFF), s);
@@ -972,7 +977,7 @@ static void SLO(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    P[0] = d & 0x80;
+    P[STATUS_CARRY] = d & 0x80;
     d <<= 1;
     A |= d;
     updateZ(A);
@@ -986,8 +991,8 @@ static void RLA(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    u8 c = P[0];
-    P[0] = d & 0x80;
+    u8 c = P[STATUS_CARRY];
+    P[STATUS_CARRY] = d & 0x80;
     d = (d << 1) | c;
     A &= d;
     updateZ(A);
@@ -1001,7 +1006,7 @@ static void SRE(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    P[0] = (d & 0x01);
+    P[STATUS_CARRY] = (d & 0x01);
     d >>= 1;
     A ^= d;
     updateZ(A);
@@ -1015,10 +1020,10 @@ static void RRA(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    u8 c = P[0];
-    P[0] = (d & 0x01);
+    u8 c = P[STATUS_CARRY];
+    P[STATUS_CARRY] = (d & 0x01);
     d = (d >> 1) | (c << 7);
-    u16 s = A + d + P[0];
+    u16 s = A + d + P[STATUS_CARRY];
     updateC(s);
     updateZ((u8)s);
     updateV(A, d, s);
@@ -1503,7 +1508,7 @@ void cpu_init(void) {
 void cpu_run(void) {
     if (nmi) {
         INT_NMI();
-    } else if (irq && !P[2]) {
+    } else if (irq && !P[STATUS_INT_DISABLE]) {
         INT_IRQ();
     }
     exec_inst();

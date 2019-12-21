@@ -1,5 +1,5 @@
+#include "../cartridge.h"
 #include "../cpu.h"
-#include "../mapper.h"
 
 #include <stdbool.h>
 #include <stdio.h>
