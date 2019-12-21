@@ -1,4 +1,6 @@
-#include "mapper.h"
+#include "cartridge.h"
+
+#include "mappers/mapper0.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,7 +12,7 @@ static int prg_size, chr_size, prg_ram_size;
 static bool has_chr_ram, has_prg_ram, vram = false;
 static u8 mapper;
 
-u8 mapper_rd(u16 addr) {
+u8 cartridge_rd(u16 addr) {
     if (addr >= 0x8000) {
         return *(
           prg + ((addr - 0x8000 + prg_bank * 0x4000) % (prg_size * 0x4000)));
@@ -19,7 +21,7 @@ u8 mapper_rd(u16 addr) {
     }
 }
 
-void mapper_wr(u16 addr, u8 data) {
+void cartridge_wr(u16 addr, u8 data) {
     // Use mapper's write implementation
 }
 

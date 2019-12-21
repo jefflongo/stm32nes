@@ -1,6 +1,6 @@
 #include "cpu.h"
 
-#include "mapper.h"
+#include "cartridge.h"
 
 #include <stdio.h>
 
@@ -23,6 +23,7 @@ static u8 S, A, X, Y;
  * [6] V: Overflow flag
  * [7] N: Negative flag
  */
+
 static bool P[8];
 
 /* Emulated interrupt flags */
@@ -82,7 +83,7 @@ static u8 rd(u16 addr) {
             // return controller_rd(1);
             return 0;
         case 0x4018 ... 0xFFFF:
-            return mapper_rd(addr);
+            return cartridge_rd(addr);
     }
 }
 
@@ -103,7 +104,7 @@ static void wr(u16 addr, u8 data) {
         case 0x4017:
             return;
         case 0x4018 ... 0xFFFF:
-            mapper_wr(addr, data);
+            cartridge_wr(addr, data);
             return;
     }
 }
@@ -206,7 +207,7 @@ static void INT_IRQ(void) {
     tick();
     u8 addrh = rd(0xFFFF);
     PC = addrl | (addrh << 8);
-    nmi = 0;
+    irq = 0;
     tick();
 }
 
