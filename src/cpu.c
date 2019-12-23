@@ -1,9 +1,13 @@
 #include "cpu.h"
 
+#include "bitmask.h"
 #include "cartridge.h"
+#include "nes.h"
+#include "ppu.h"
 
 #include <stdio.h>
 
+// For passing addressing modes as instruction arguments
 typedef u16 (*mode)();
 
 // Processor status flag definitions
@@ -18,63 +22,26 @@ enum {
     STATUS_NEGATIVE,    // [7] N: Negative flag
 };
 
-/* Registers */
-
-// Program counter
-static u16 PC;
-// Stack pointer, Accumulator, X (stack access), Y (no stack access)
-static u8 S, A, X, Y;
-
-// Processor status flags
-static bool P[8];
-
-/* Emulated interrupt flags */
-static bool nmi, irq;
-
-/* Cycle tracker */
-static u64 cycle = 0;
-
-/* Memory */
-
-/*
- * $0000 - $00FF(256 bytes)  - Zero Page
- * $0100 - $01FF(256 bytes)  - Stack memory
- * $0200 - $07FF(1536 bytes) - RAM
- */
-static u8 ram[0x800];
-/*
- * $0800 - $0FFF(2048 bytes)  - Mirror of $000 - $07FF
- * $1000 - $17FF(2048 bytes)  - Mirror of $000 - $07FF
- * $1800 - $1FFF(2048 bytes)  - Mirror of $000 - $07FF
- * $2000 - $2007(8 bytes)     - I/O registers
- * $2008 - $3FFF(8184 bytes)  - Mirror of $2000 - $2007 (repeated)
- * $4000 - $401F(32 bytes)    - I/O registers
- * $4020 - $5FFF(8160 bytes)  - Expansion ROM
- * $6000 - $7FFF(8192 bytes)  - SRAM
- * $8000 - $FFFF(32768 bytes) - PRG-ROM
- * $FFFA - $FFFB(2 bytes)     - NMI handler routine
- * $FFFC - $FFFD(2 bytes)     - Power on reset handler routine
- * $FFFE - $FFFF(2 bytes)     - IRQ/BRK handler routine
- */
-
-/* CPU Tick */
+// Registers, interrupt flags, cycle tracker
+static cpu_state_t cpu;
+// System RAM
+static u8 ram[NES_RAM_SIZE];
 
 static void tick(void) {
     // ppu_tick();
     // ppu_tick();
     // ppu_tick();
-    cycle++;
+    cpu.cycle++;
 }
 
-/* Read/Write */
+/* Read/Write operations */
 
 static u8 rd(u16 addr) {
     switch (addr) {
         case 0x0000 ... 0x1FFF:
-            return ram[addr % 0x800];
+            return ram[addr % NES_RAM_SIZE];
         case 0x2000 ... 0x3FFF:
-            // return ppu_reg_access(addr % 0x100, 0, READ);
-            return 0;
+            return ppu_reg_access(addr % 0x100, 0, READ);
         case 0x4000 ... 0x4015:
             // APU, Peripherals..
             return 0;
@@ -85,17 +52,17 @@ static u8 rd(u16 addr) {
             // return controller_rd(1);
             return 0;
         case 0x4018 ... 0xFFFF:
-            return cartridge_rd(addr);
+            return cartridge_prg_rd(addr);
     }
 }
 
 static void wr(u16 addr, u8 data) {
     switch (addr) {
         case 0x0000 ... 0x1FFF:
-            ram[addr % 0x800] = data;
+            ram[addr % NES_RAM_SIZE] = data;
             return;
         case 0x2000 ... 0x3FFF:
-            // return ppu_reg_access(addr % 0x100, 0, WRITE);
+            ppu_reg_access(addr % 0x100, 0, WRITE);
             return;
         case 0x4000 ... 0x4015:
             // APU, Peripherals..
@@ -106,7 +73,7 @@ static void wr(u16 addr, u8 data) {
         case 0x4017:
             return;
         case 0x4018 ... 0xFFFF:
-            cartridge_wr(addr, data);
+            cartridge_prg_wr(addr, data);
             return;
     }
 }
@@ -114,46 +81,29 @@ static void wr(u16 addr, u8 data) {
 /* Stack operations */
 
 static void push(u8 data) {
-    wr(0x100 | S--, data);
+    wr(NES_STACK_OFFSET | cpu.S--, data);
 }
 
 static u8 pull(void) {
-    return rd(0x100 | ++S);
+    return rd(NES_STACK_OFFSET | ++cpu.S);
 }
 
 /* Flag adjustment */
 
-static void set_flags(u8 state) {
-    P[STATUS_CARRY] = (state & 0x01);
-    P[STATUS_ZERO] = (state & 0x02) >> 1;
-    P[STATUS_INT_DISABLE] = (state & 0x04) >> 2;
-    P[STATUS_DECIMAL] = (state & 0x08) >> 3;
-    // Note: BREAK and UNUSED flags are unsettable
-    P[STATUS_OVERFLOW] = (state & 0x40) >> 6;
-    P[STATUS_NEGATIVE] = (state & 0x80) >> 7;
-}
-
-static u8 get_flags(void) {
-    // Note: BREAK flag is unreturnable, UNUSED flag is always 1
-    return P[STATUS_CARRY] | (P[STATUS_ZERO] << 1) |
-           (P[STATUS_INT_DISABLE] << 2) | (P[STATUS_DECIMAL] << 3) | 1 << 5 |
-           (P[STATUS_OVERFLOW] << 6) | (P[STATUS_NEGATIVE] << 7);
-}
-
 static inline void updateC(u16 r) {
-    P[STATUS_CARRY] = r > 0xFF;
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, r > 0xFF);
 }
 
 static inline void updateZ(u8 d) {
-    P[STATUS_ZERO] = d == 0;
+    ASSIGN_NTH_BIT(cpu.P, STATUS_ZERO, d == 0);
 }
 
 static inline void updateV(u8 d1, u8 d2, u16 r) {
-    P[STATUS_OVERFLOW] = (0xFF ^ d1 ^ d2) & (d1 ^ r) & 0x80;
+    ASSIGN_NTH_BIT(cpu.P, STATUS_OVERFLOW, (0xFF ^ d1 ^ d2) & (d1 ^ r) & 0x80);
 }
 
 static inline void updateN(u8 d) {
-    P[STATUS_NEGATIVE] = d & 0x80;
+    ASSIGN_NTH_BIT(cpu.P, STATUS_NEGATIVE, d & 0x80);
 }
 
 /* Interrupts */
@@ -163,18 +113,18 @@ static void INT_NMI(void) {
     tick();
     // Suppress PC increment
     tick();
-    push(PC >> 8);
+    push(cpu.PC >> 8);
     tick();
-    push(PC & 0xFF);
+    push(cpu.PC & 0xFF);
     tick();
-    push(get_flags() | (1 << STATUS_UNUSED));
+    push(cpu.P | (1 << STATUS_UNUSED));
     tick();
-    P[STATUS_INT_DISABLE] = 1;
-    u8 addrl = rd(0xFFFA);
+    SET_NTH_BIT(cpu.P, STATUS_INT_DISABLE);
+    u8 addrl = rd(NES_NMI_HANDLE_OFFSET);
     tick();
-    u8 addrh = rd(0xFFFB);
-    PC = addrl | (addrh << 8);
-    nmi = 0;
+    u8 addrh = rd(NES_NMI_HANDLE_OFFSET + 1);
+    cpu.PC = addrl | (addrh << 8);
+    cpu.nmi = 0;
     tick();
 }
 
@@ -184,15 +134,15 @@ static void INT_RESET(void) {
     // Suppress PC increment
     tick();
     // Suppress the 3 writes to the stack
-    S -= 3;
+    cpu.S -= 3;
     tick();
     tick();
     tick();
-    P[STATUS_INT_DISABLE] = 1;
-    u8 addrl = rd(0xFFFC);
+    SET_NTH_BIT(cpu.P, STATUS_INT_DISABLE);
+    u8 addrl = rd(NES_RESET_HANDLE_OFFSET);
     tick();
-    u8 addrh = rd(0xFFFD);
-    PC = addrl | (addrh << 8);
+    u8 addrh = rd(NES_RESET_HANDLE_OFFSET + 1);
+    cpu.PC = addrl | (addrh << 8);
     tick();
 }
 
@@ -201,34 +151,34 @@ static void INT_IRQ(void) {
     tick();
     // Suppress PC increment
     tick();
-    push(PC >> 8);
+    push(cpu.PC >> 8);
     tick();
-    push(PC & 0xFF);
+    push(cpu.PC & 0xFF);
     tick();
-    push(get_flags() | (1 << STATUS_UNUSED));
+    push(cpu.P | (1 << STATUS_UNUSED));
     tick();
-    P[STATUS_INT_DISABLE] = 1;
-    u8 addrl = rd(0xFFFE);
+    SET_NTH_BIT(cpu.P, STATUS_INT_DISABLE);
+    u8 addrl = rd(NES_IRQ_BRK_HANDLE_OFFSET);
     tick();
-    u8 addrh = rd(0xFFFF);
-    PC = addrl | (addrh << 8);
-    irq = 0;
+    u8 addrh = rd(NES_IRQ_BRK_HANDLE_OFFSET + 1);
+    cpu.PC = addrl | (addrh << 8);
+    cpu.irq = 0;
     tick();
 }
 
 static void BRK(void) {
-    PC++;
+    cpu.PC++;
     tick();
-    push(PC >> 8);
+    push(cpu.PC >> 8);
     tick();
-    push(PC & 0xFF);
-    push(get_flags() | (1 << STATUS_BREAK) | (1 << STATUS_UNUSED));
+    push(cpu.PC & 0xFF);
+    push(cpu.P | (1 << STATUS_BREAK) | (1 << STATUS_UNUSED));
     tick();
-    P[STATUS_INT_DISABLE] = 1;
-    u8 addrl = rd(0xFFFE);
+    SET_NTH_BIT(cpu.P, STATUS_INT_DISABLE);
+    u8 addrl = rd(NES_IRQ_BRK_HANDLE_OFFSET);
     tick();
-    u8 addrh = rd(0xFFFF);
-    PC = addrl | (addrh << 8);
+    u8 addrh = rd(NES_IRQ_BRK_HANDLE_OFFSET + 1);
+    cpu.PC = addrl | (addrh << 8);
     tick();
 }
 
@@ -237,7 +187,7 @@ static void BRK(void) {
 // Immediate:
 // - Return current PC and increment PC (immediate stored here)
 static u16 imm(void) {
-    return PC++;
+    return cpu.PC++;
 }
 // ZP:
 // - Read the immediate, increment PC
@@ -252,7 +202,7 @@ static u16 zp(void) {
 // - Calculate imm + X, include wraparound
 // - Return the new address
 static u16 zpx(void) {
-    u16 addr = (zp() + X) % 0x100;
+    u16 addr = (zp() + cpu.X) % 0x100;
     tick();
     return addr;
 }
@@ -261,7 +211,7 @@ static u16 zpx(void) {
 // - Calculate imm + Y, include wraparound
 // - Return the new address
 static u16 zpy(void) {
-    u16 addr = (zp() + Y) % 0x100;
+    u16 addr = (zp() + cpu.Y) % 0x100;
     tick();
     return addr;
 }
@@ -282,7 +232,7 @@ static u16 absl(void) {
 static u16 absx_rd(void) {
     u16 addrl = zp();
     u8 addrh = rd(imm());
-    addrl += X;
+    addrl += cpu.X;
     tick();
     if ((addrl & 0xFF00) != 0) {
         addrl %= 0x100;
@@ -295,7 +245,7 @@ static u16 absx_rd(void) {
 static u16 absx_wr(void) {
     u16 addrl = zp();
     u8 addrh = rd(imm());
-    addrl += X;
+    addrl += cpu.X;
     tick();
     if ((addrl & 0xFF00) != 0) {
         addrl %= 0x100;
@@ -312,7 +262,7 @@ static u16 absx_wr(void) {
 static u16 absy_rd(void) {
     u16 addrl = zp();
     u8 addrh = rd(imm());
-    addrl += Y;
+    addrl += cpu.Y;
     tick();
     if ((addrl & 0xFF00) != 0) {
         addrl %= 0x100;
@@ -325,7 +275,7 @@ static u16 absy_rd(void) {
 static u16 absy_wr(void) {
     u16 addrl = zp();
     u8 addrh = rd(imm());
-    addrl += Y;
+    addrl += cpu.Y;
     tick();
     if ((addrl & 0xFF00) != 0) {
         addrl %= 0x100;
@@ -373,7 +323,7 @@ static u16 indy_rd(void) {
     u16 addrl = rd(ptr);
     tick();
     u8 addrh = rd((ptr + 1) % 0x100);
-    addrl += Y;
+    addrl += cpu.Y;
     tick();
     if ((addrl & 0xFF00) != 0) {
         addrl %= 0x100;
@@ -388,7 +338,7 @@ static u16 indy_wr(void) {
     u16 addrl = rd(ptr);
     tick();
     u8 addrh = rd((ptr + 1) % 0x100);
-    addrl += Y;
+    addrl += cpu.Y;
     tick();
     if ((addrl & 0xFF00) != 0) {
         addrl %= 0x100;
@@ -403,9 +353,9 @@ static u16 indy_wr(void) {
 // - If adding the offset overflowed the low byte of PC, add a cycle
 static u16 rel(void) {
     s8 imm = (s8)zp();
-    u16 addr = PC + imm;
+    u16 addr = cpu.PC + imm;
     tick();
-    if ((addr & 0x100) != (PC & 0x100)) tick();
+    if ((addr & 0x100) != (cpu.PC & 0x100)) tick();
     return addr;
 }
 
@@ -416,7 +366,7 @@ static void LDA(mode m) {
     u8 d = rd(m());
     updateZ(d);
     updateN(d);
-    A = d;
+    cpu.A = d;
     tick();
 }
 
@@ -424,7 +374,7 @@ static void LDX(mode m) {
     u8 d = rd(m());
     updateZ(d);
     updateN(d);
-    X = d;
+    cpu.X = d;
     tick();
 }
 
@@ -432,62 +382,62 @@ static void LDY(mode m) {
     u8 d = rd(m());
     updateZ(d);
     updateN(d);
-    Y = d;
+    cpu.Y = d;
     tick();
 }
 
 static void STA(mode m) {
-    wr(m(), A);
+    wr(m(), cpu.A);
     tick();
 }
 
 static void STX(mode m) {
-    wr(m(), X);
+    wr(m(), cpu.X);
     tick();
 }
 
 static void STY(mode m) {
-    wr(m(), Y);
+    wr(m(), cpu.Y);
     tick();
 }
 
 static void TXA(void) {
-    updateZ(X);
-    updateN(X);
-    A = X;
+    updateZ(cpu.X);
+    updateN(cpu.X);
+    cpu.A = cpu.X;
     tick();
 }
 
 static void TXS(void) {
-    S = X;
+    cpu.S = cpu.X;
     tick();
 }
 
 static void TYA(void) {
-    updateZ(Y);
-    updateN(Y);
-    A = Y;
+    updateZ(cpu.Y);
+    updateN(cpu.Y);
+    cpu.A = cpu.Y;
     tick();
 }
 
 static void TAX(void) {
-    updateZ(A);
-    updateN(A);
-    X = A;
+    updateZ(cpu.A);
+    updateN(cpu.A);
+    cpu.X = cpu.A;
     tick();
 }
 
 static void TAY(void) {
-    updateZ(A);
-    updateN(A);
-    Y = A;
+    updateZ(cpu.A);
+    updateN(cpu.A);
+    cpu.Y = cpu.A;
     tick();
 }
 
 static void TSX(void) {
-    updateZ(S);
-    updateN(S);
-    X = S;
+    updateZ(cpu.S);
+    updateN(cpu.S);
+    cpu.X = cpu.S;
     tick();
 }
 
@@ -495,7 +445,7 @@ static void TSX(void) {
 static void PHP(void) {
     // Throw away next byte
     tick();
-    push(get_flags() | (1 << STATUS_BREAK) | (1 << STATUS_UNUSED));
+    push(cpu.P | (1 << STATUS_BREAK) | (1 << STATUS_UNUSED));
     tick();
 }
 
@@ -504,14 +454,14 @@ static void PLP(void) {
     tick();
     // S increment
     tick();
-    set_flags(pull());
+    cpu.P = (pull() & ~(1 << STATUS_BREAK)) | (1 << STATUS_UNUSED);
     tick();
 }
 
 static void PHA(void) {
     // Throw away next byte
     tick();
-    push(A);
+    push(cpu.A);
     tick();
 }
 
@@ -520,71 +470,71 @@ static void PLA(void) {
     tick();
     // S increment
     tick();
-    A = pull();
-    updateZ(A);
-    updateN(A);
+    cpu.A = pull();
+    updateZ(cpu.A);
+    updateN(cpu.A);
     tick();
 }
 
 // Arithmetic / Logical operations
 static void _ADC(mode m) {
     u8 d = rd(m());
-    u16 s = A + d + P[STATUS_CARRY];
+    u16 s = cpu.A + d + NTH_BIT(cpu.P, STATUS_CARRY);
     updateC(s);
     updateZ((u8)s);
-    updateV(A, d, s);
+    updateV(cpu.A, d, s);
     updateN((u8)s);
-    A = (u8)s;
+    cpu.A = (u8)s;
     tick();
 }
 
 static void SBC(mode m) {
     u8 d = rd(m());
-    u16 s = A + (d ^ 0xFF) + P[STATUS_CARRY];
+    u16 s = cpu.A + (d ^ 0xFF) + NTH_BIT(cpu.P, STATUS_CARRY);
     updateC(s);
     updateZ((u8)s);
-    updateV(A, (d ^ 0xFF), s);
+    updateV(cpu.A, (d ^ 0xFF), s);
     updateN((u8)s);
-    A = (u8)s;
+    cpu.A = (u8)s;
     tick();
 }
 
 static void AND(mode m) {
     u8 d = rd(m());
-    A &= d;
-    updateZ(A);
-    updateN(A);
+    cpu.A &= d;
+    updateZ(cpu.A);
+    updateN(cpu.A);
     tick();
 }
 
 static void EOR(mode m) {
     u8 d = rd(m());
-    A ^= d;
-    updateZ(A);
-    updateN(A);
+    cpu.A ^= d;
+    updateZ(cpu.A);
+    updateN(cpu.A);
     tick();
 }
 
 static void ORA(mode m) {
     u8 d = rd(m());
-    A |= d;
-    updateZ(A);
-    updateN(A);
+    cpu.A |= d;
+    updateZ(cpu.A);
+    updateN(cpu.A);
     tick();
 }
 
 static void BIT(mode m) {
     u8 d = rd(m());
-    updateZ(A & d);
-    P[STATUS_NEGATIVE] = d & 0x80;
-    P[STATUS_OVERFLOW] = d & 0x40;
+    updateZ(cpu.A & d);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_NEGATIVE, d & 0x80);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_OVERFLOW, d & 0x40);
     tick();
 }
 
 // Compares
 static void CMP(mode m) {
     u8 d = rd(m());
-    u16 s = A + (d ^ 0xFF) + 1;
+    u16 s = cpu.A + (d ^ 0xFF) + 1;
     updateC(s);
     updateZ((u8)s);
     updateN((u8)s);
@@ -593,7 +543,7 @@ static void CMP(mode m) {
 
 static void CPX(mode m) {
     u8 d = rd(m());
-    u16 s = X + (d ^ 0xFF) + 1;
+    u16 s = cpu.X + (d ^ 0xFF) + 1;
     updateC(s);
     updateZ((u8)s);
     updateN((u8)s);
@@ -602,7 +552,7 @@ static void CPX(mode m) {
 
 static void CPY(mode m) {
     u8 d = rd(m());
-    u16 s = Y + (d ^ 0xFF) + 1;
+    u16 s = cpu.Y + (d ^ 0xFF) + 1;
     updateC(s);
     updateZ((u8)s);
     updateN((u8)s);
@@ -623,16 +573,16 @@ static void INC(mode m) {
 }
 
 static void INX(void) {
-    X++;
-    updateZ(X);
-    updateN(X);
+    cpu.X++;
+    updateZ(cpu.X);
+    updateN(cpu.X);
     tick();
 }
 
 static void INY(void) {
-    Y++;
-    updateZ(Y);
-    updateN(Y);
+    cpu.Y++;
+    updateZ(cpu.Y);
+    updateN(cpu.Y);
     tick();
 }
 
@@ -649,16 +599,16 @@ static void DEC(mode m) {
 }
 
 static void DEX(void) {
-    X--;
-    updateZ(X);
-    updateN(X);
+    cpu.X--;
+    updateZ(cpu.X);
+    updateN(cpu.X);
     tick();
 }
 
 static void DEY(void) {
-    Y--;
-    updateZ(Y);
-    updateN(Y);
+    cpu.Y--;
+    updateZ(cpu.Y);
+    updateN(cpu.Y);
     tick();
 }
 
@@ -667,7 +617,7 @@ static void ASL(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    P[STATUS_CARRY] = d & 0x80;
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x80);
     d <<= 1;
     updateZ(d);
     updateN(d);
@@ -677,10 +627,10 @@ static void ASL(mode m) {
 }
 
 static void ASL_A(void) {
-    P[STATUS_CARRY] = A & 0x80;
-    A <<= 1;
-    updateZ(A);
-    updateN(A);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, cpu.A & 0x80);
+    cpu.A <<= 1;
+    updateZ(cpu.A);
+    updateN(cpu.A);
     tick();
 }
 
@@ -688,7 +638,7 @@ static void LSR(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    P[STATUS_CARRY] = d & 0x01;
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x01);
     d >>= 1;
     updateZ(d);
     updateN(d);
@@ -698,10 +648,10 @@ static void LSR(mode m) {
 }
 
 static void LSR_A(void) {
-    P[STATUS_CARRY] = A & 0x01;
-    A >>= 1;
-    updateZ(A);
-    updateN(A);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, cpu.A & 0x01);
+    cpu.A >>= 1;
+    updateZ(cpu.A);
+    updateN(cpu.A);
     tick();
 }
 
@@ -709,8 +659,8 @@ static void ROL(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    u8 c = P[STATUS_CARRY];
-    P[STATUS_CARRY] = d & 0x80;
+    bool c = NTH_BIT(cpu.P, STATUS_CARRY);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x80);
     d = (d << 1) | c;
     updateZ(d);
     updateN(d);
@@ -720,11 +670,11 @@ static void ROL(mode m) {
 }
 
 static void ROL_A(void) {
-    u8 c = P[STATUS_CARRY];
-    P[STATUS_CARRY] = A & 0x80;
-    A = (A << 1) | c;
-    updateZ(A);
-    updateN(A);
+    bool c = NTH_BIT(cpu.P, STATUS_CARRY);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, cpu.A & 0x80);
+    cpu.A = (cpu.A << 1) | c;
+    updateZ(cpu.A);
+    updateN(cpu.A);
     tick();
 }
 
@@ -732,8 +682,8 @@ static void ROR(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    u8 c = P[STATUS_CARRY];
-    P[STATUS_CARRY] = d & 0x01;
+    bool c = NTH_BIT(cpu.P, STATUS_CARRY);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x01);
     d = (d >> 1) | (c << 7);
     updateZ(d);
     updateN(d);
@@ -743,30 +693,30 @@ static void ROR(mode m) {
 }
 
 static void ROR_A(void) {
-    u8 c = P[STATUS_CARRY];
-    P[STATUS_CARRY] = (A & 0x01);
-    A = (A >> 1) | (c << 7);
-    updateZ(A);
-    updateN(A);
+    bool c = NTH_BIT(cpu.P, STATUS_CARRY);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, cpu.A & 0x01);
+    cpu.A = (cpu.A >> 1) | (c << 7);
+    updateZ(cpu.A);
+    updateN(cpu.A);
     tick();
 }
 
 // Jumps / calls
 static void JMP(mode m) {
-    PC = m();
+    cpu.PC = m();
 }
 
 static void JSR(void) {
-    u8 addrl = rd(PC);
-    PC += 1;
+    u8 addrl = rd(cpu.PC);
+    cpu.PC += 1;
     tick();
     tick();
-    push(PC >> 8);
+    push(cpu.PC >> 8);
     tick();
-    push(PC & 0xFF);
+    push(cpu.PC & 0xFF);
     tick();
-    u8 addrh = rd(PC);
-    PC = addrl | (addrh << 8);
+    u8 addrh = rd(cpu.PC);
+    cpu.PC = addrl | (addrh << 8);
     tick();
 }
 
@@ -778,9 +728,9 @@ static void RTS(void) {
     u8 addrl = pull();
     tick();
     u8 addrh = pull();
-    PC = addrl | (addrh << 8);
+    cpu.PC = addrl | (addrh << 8);
     tick();
-    PC += 1;
+    cpu.PC += 1;
     tick();
 }
 
@@ -789,121 +739,121 @@ static void RTI(void) {
     tick();
     // S increment
     tick();
-    set_flags(pull());
+    cpu.P = (pull() & ~(1 << STATUS_BREAK)) | (1 << STATUS_UNUSED);
     tick();
     u8 addrl = pull();
     tick();
     u8 addrh = pull();
-    PC = addrl | (addrh << 8);
+    cpu.PC = addrl | (addrh << 8);
     tick();
 }
 
 // Branches
 static void BPL(mode m) {
-    if (!P[STATUS_NEGATIVE]) {
-        PC = m();
+    if (!NTH_BIT(cpu.P, STATUS_NEGATIVE)) {
+        cpu.PC = m();
     } else {
-        PC++;
+        cpu.PC++;
         tick();
     }
 }
 
 static void BMI(mode m) {
-    if (P[STATUS_NEGATIVE]) {
-        PC = m();
+    if (NTH_BIT(cpu.P, STATUS_NEGATIVE)) {
+        cpu.PC = m();
     } else {
-        PC++;
+        cpu.PC++;
         tick();
     }
 }
 
 static void BVC(mode m) {
-    if (!P[STATUS_OVERFLOW]) {
-        PC = m();
+    if (!NTH_BIT(cpu.P, STATUS_OVERFLOW)) {
+        cpu.PC = m();
     } else {
-        PC++;
+        cpu.PC++;
         tick();
     }
 }
 
 static void BVS(mode m) {
-    if (P[STATUS_OVERFLOW]) {
-        PC = m();
+    if (NTH_BIT(cpu.P, STATUS_OVERFLOW)) {
+        cpu.PC = m();
     } else {
-        PC++;
+        cpu.PC++;
         tick();
     }
 }
 
 static void BCC(mode m) {
-    if (!P[STATUS_CARRY]) {
-        PC = m();
+    if (!NTH_BIT(cpu.P, STATUS_CARRY)) {
+        cpu.PC = m();
     } else {
-        PC++;
+        cpu.PC++;
         tick();
     }
 }
 
 static void BCS(mode m) {
-    if (P[STATUS_CARRY]) {
-        PC = m();
+    if (NTH_BIT(cpu.P, STATUS_CARRY)) {
+        cpu.PC = m();
     } else {
-        PC++;
+        cpu.PC++;
         tick();
     }
 }
 
 static void BNE(mode m) {
-    if (!P[STATUS_ZERO]) {
-        PC = m();
+    if (!NTH_BIT(cpu.P, STATUS_ZERO)) {
+        cpu.PC = m();
     } else {
-        PC++;
+        cpu.PC++;
         tick();
     }
 }
 
 static void BEQ(mode m) {
-    if (P[STATUS_ZERO]) {
-        PC = m();
+    if (NTH_BIT(cpu.P, STATUS_ZERO)) {
+        cpu.PC = m();
     } else {
-        PC++;
+        cpu.PC++;
         tick();
     }
 }
 
 // Status register operations
 static void CLC(void) {
-    P[STATUS_CARRY] = 0;
+    CLEAR_NTH_BIT(cpu.P, STATUS_CARRY);
     tick();
 }
 
 static void CLI(void) {
-    P[STATUS_INT_DISABLE] = 0;
+    CLEAR_NTH_BIT(cpu.P, STATUS_INT_DISABLE);
     tick();
 }
 
 static void CLV(void) {
-    P[STATUS_OVERFLOW] = 0;
+    CLEAR_NTH_BIT(cpu.P, STATUS_OVERFLOW);
     tick();
 }
 
 static void CLD(void) {
-    P[STATUS_DECIMAL] = 0;
+    CLEAR_NTH_BIT(cpu.P, STATUS_DECIMAL);
     tick();
 }
 
 static void SEC(void) {
-    P[STATUS_CARRY] = 1;
+    SET_NTH_BIT(cpu.P, STATUS_CARRY);
     tick();
 }
 
 static void SEI(void) {
-    P[STATUS_INT_DISABLE] = 1;
+    SET_NTH_BIT(cpu.P, STATUS_INT_DISABLE);
     tick();
 }
 
 static void SED(void) {
-    P[STATUS_DECIMAL] = 1;
+    SET_NTH_BIT(cpu.P, STATUS_DECIMAL);
     tick();
 }
 
@@ -922,24 +872,24 @@ static void LAX(mode m) {
     u8 d = rd(m());
     updateZ(d);
     updateN(d);
-    A = d;
-    X = d;
+    cpu.A = d;
+    cpu.X = d;
     tick();
 }
 
 static void SAX(mode m) {
     u16 addr = m();
-    wr(addr, A & X);
+    wr(addr, cpu.A & cpu.X);
     tick();
 }
 
 static void AXS(mode m) {
     u8 d = rd(m());
-    u16 s = (A & X) + (d ^ 0xFF) + 1;
+    u16 s = (cpu.A & cpu.X) + (d ^ 0xFF) + 1;
     updateC(s);
     updateZ((u8)s);
     updateN((u8)s);
-    X = (u8)s;
+    cpu.X = (u8)s;
     tick();
 }
 
@@ -948,7 +898,7 @@ static void DCP(mode m) {
     u8 d = rd(addr);
     tick();
     d--;
-    u16 s = A + (d ^ 0xFF) + 1;
+    u16 s = cpu.A + (d ^ 0xFF) + 1;
     updateC(s);
     updateZ((u8)s);
     updateN((u8)s);
@@ -962,12 +912,12 @@ static void ISC(mode m) {
     u8 d = rd(addr);
     tick();
     d++;
-    u16 s = A + (d ^ 0xFF) + P[STATUS_CARRY];
+    u16 s = cpu.A + (d ^ 0xFF) + NTH_BIT(cpu.P, STATUS_CARRY);
     updateC(s);
     updateZ((u8)s);
-    updateV(A, (d ^ 0xFF), s);
+    updateV(cpu.A, (d ^ 0xFF), s);
     updateN((u8)s);
-    A = (u8)s;
+    cpu.A = (u8)s;
     tick();
     wr(addr, d);
     tick();
@@ -977,11 +927,11 @@ static void SLO(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    P[STATUS_CARRY] = d & 0x80;
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x80);
     d <<= 1;
-    A |= d;
-    updateZ(A);
-    updateN(A);
+    cpu.A |= d;
+    updateZ(cpu.A);
+    updateN(cpu.A);
     tick();
     wr(addr, d);
     tick();
@@ -991,12 +941,12 @@ static void RLA(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    u8 c = P[STATUS_CARRY];
-    P[STATUS_CARRY] = d & 0x80;
+    bool c = NTH_BIT(cpu.P, STATUS_CARRY);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x80);
     d = (d << 1) | c;
-    A &= d;
-    updateZ(A);
-    updateN(A);
+    cpu.A &= d;
+    updateZ(cpu.A);
+    updateN(cpu.A);
     tick();
     wr(addr, d);
     tick();
@@ -1006,11 +956,11 @@ static void SRE(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    P[STATUS_CARRY] = (d & 0x01);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x01);
     d >>= 1;
-    A ^= d;
-    updateZ(A);
-    updateN(A);
+    cpu.A ^= d;
+    updateZ(cpu.A);
+    updateN(cpu.A);
     tick();
     wr(addr, d);
     tick();
@@ -1020,15 +970,15 @@ static void RRA(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    u8 c = P[STATUS_CARRY];
-    P[STATUS_CARRY] = (d & 0x01);
+    bool c = NTH_BIT(cpu.P, STATUS_CARRY);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x01);
     d = (d >> 1) | (c << 7);
-    u16 s = A + d + P[STATUS_CARRY];
+    u16 s = cpu.A + d + NTH_BIT(cpu.P, STATUS_CARRY);
     updateC(s);
     updateZ((u8)s);
-    updateV(A, d, s);
+    updateV(cpu.A, d, s);
     updateN((u8)s);
-    A = (u8)s;
+    cpu.A = (u8)s;
     tick();
     wr(addr, d);
     tick();
@@ -1038,7 +988,7 @@ static void RRA(mode m) {
 
 static void exec_inst(void) {
     // Fetch
-    u8 op = rd(PC++);
+    u8 op = rd(cpu.PC++);
     tick();
     // Decode/Execute
     switch (op) {
@@ -1495,39 +1445,33 @@ static void exec_inst(void) {
 }
 
 void cpu_init(void) {
-    set_flags(0x24);
-    A = 0x00;
-    X = 0x00;
-    Y = 0x00;
-    S = 0x00;
-    nmi = 0;
-    irq = 0;
+    cpu.A = 0x00;
+    cpu.X = 0x00;
+    cpu.Y = 0x00;
+    cpu.S = 0x00;
+    cpu.P = 0x00 | (1 << STATUS_INT_DISABLE) | (1 << STATUS_UNUSED);
+    cpu.nmi = 0;
+    cpu.irq = 0;
     INT_RESET();
 }
 
 void cpu_run(void) {
-    if (nmi) {
+    if (cpu.nmi) {
         INT_NMI();
-    } else if (irq && !P[STATUS_INT_DISABLE]) {
+    } else if (cpu.irq && !NTH_BIT(cpu.P, STATUS_INT_DISABLE)) {
         INT_IRQ();
     }
     exec_inst();
 }
 
 void cpu_set_NMI(bool enable) {
-    nmi = enable;
+    cpu.nmi = enable;
 }
 
 void cpu_set_IRQ(bool enable) {
-    irq = enable;
+    cpu.irq = enable;
 }
 
 void cpu_get_state(cpu_state_t* state) {
-    state->PC = PC;
-    state->S = S;
-    state->A = A;
-    state->X = X;
-    state->Y = Y;
-    state->P = get_flags();
-    state->cycle = cycle;
+    *state = cpu;
 }

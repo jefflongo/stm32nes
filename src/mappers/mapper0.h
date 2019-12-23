@@ -3,6 +3,6 @@
 
 #include "../types.h"
 
-void mapper0_init(u8* pBank, u8* cBank);
+void mapper0_init(u32* prg_map, u32* chr_map, u8 prg_units);
 
 #endif // MAPPER0_H_

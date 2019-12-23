@@ -75,8 +75,8 @@ static void parse_verification_state(const char* line, char* s, int len) {
 
 static bool test_cpu() {
     // Load verification log and test rom
-    FILE* test = fopen("test/nestest.txt", "rb");
-    if (!test || load_rom("test/nestest.nes") != 0) {
+    FILE* test = fopen("src/test/nestest.txt", "rb");
+    if (!test || cartridge_init("src/test/nestest.nes") != 0) {
         printf("CPU TEST FAILURE\nVerification files not found.\n");
         return false;
     }
@@ -106,6 +106,8 @@ static bool test_cpu() {
 }
 
 int main() {
+    int x = 0;
+    x = x + 1;
     if (!test_cpu()) return -1;
 
     return 0;

@@ -3,11 +3,11 @@
 
 #include "types.h"
 
-u8 cartridge_rd(u16 addr);
-void cartridge_wr(u16 addr, u8 data);
-int load_rom(char* filename);
-void map_prg(u8 bank);
-void map_chr(u8 bank);
-void reset();
+int cartridge_init(char* filename);
+u8 cartridge_prg_rd(u16 addr);
+u8 cartridge_chr_rd(u16 addr);
+void cartridge_prg_wr(u16 addr, u8 data);
+void cartridge_chr_wr(u16 addr, u8 data);
+void reset(void);
 
 #endif // CARTRIDGE_H_

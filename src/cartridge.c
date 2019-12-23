@@ -1,119 +1,130 @@
 #include "cartridge.h"
 
 #include "mappers/mapper0.h"
+#include "nes.h"
+#include "ppu.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-static u8 *prg, *chr, *prg_ram = NULL;
-static u8 prg_bank, chr_bank = 0;
-static int prg_size, chr_size, prg_ram_size;
-static bool has_chr_ram, has_prg_ram, vram = false;
-static u8 mapper;
+typedef struct {
+    u8 mapper;              // Mapper ID
+    u8 prg_size;            // PRG size in 16kB units
+    u8 chr_size;            // CHR size in 8kB units
+    ppu_mirror_t mirroring; // Mirroring mode if no VRAM
+    bool has_vram;    // Cart contains additional VRAM, ignore mirroring mode
+    bool has_chr_ram; // Cart contains additional CHR RAM, set if chr_size = 0
+    bool has_prg_ram; // Cart contains additional PRG RAM
+    u8 prg_ram_size;  // Size of PRG RAM in 8kB units if available
+} cartridge_config_t;
 
-u8 cartridge_rd(u16 addr) {
-    if (addr >= 0x8000) {
-        return *(
-          prg + ((addr - 0x8000 + prg_bank * 0x4000) % (prg_size * 0x4000)));
-    } else {
-        return has_prg_ram ? *(prg_ram + addr - 0x6000) : 0;
-    }
-}
+typedef struct {
+    cartridge_config_t config;
+    u8* rom;
+    u8* prg;
+    u8* prg_ram;
+    u8* chr;
+} cartridge_t;
 
-void cartridge_wr(u16 addr, u8 data) {
-    // Use mapper's write implementation
-}
+static cartridge_t cart;
 
-u8 chr_rd(u16 addr) {
-    return *(chr + addr + chr_bank * 0x2000);
-}
+static u32 prg_map[4], chr_map[8];
+// static u8 prg_bank, chr_bank;
 
-void chr_wr(u16 addr, u8 data) {
-    if (has_chr_ram) *(chr + addr) = data;
-}
+int cartridge_init(char* filename) {
+    // Load ROM into memory
+    FILE* rom_file = fopen(filename, "rb");
+    if (!rom_file) return -1;
+    fseek(rom_file, 0L, SEEK_END);
+    size_t rom_size = ftell(rom_file);
+    cart.rom = malloc(rom_size * sizeof(u8));
+    rewind(rom_file);
+    fread(cart.rom, 1, rom_size, rom_file);
+    fclose(rom_file);
 
-int load_rom(char* filename) {
-    FILE* rom = fopen(filename, "rb");
-    if (!rom) return -1;
     /* Header - 16 bytes */
     // 4 byte magic number
-    char magicNumber[5];
-    fgets(magicNumber, 5, rom);
-    if (strcmp(magicNumber, "NES\x1a")) return -2;
+    if (memcmp(cart.rom, "NES\x1a", 4)) return -2;
     // PRG-ROM size in 16 kb blocks
-    u8 byte = (u8)fgetc(rom);
-    prg_size = byte;
-    if (prg_size <= 0) return -3;
+    cart.config.prg_size = cart.rom[4];
+    if (!cart.config.prg_size) return -3;
     // CHR-ROM in 8 kb blocks
-    byte = (u8)fgetc(rom);
-    if (byte != 0) {
-        chr_size = byte;
+    if (cart.rom[5]) {
+        cart.config.chr_size = cart.rom[5];
     } else {
-        chr_size = 1;
-        has_chr_ram = true;
+        cart.config.chr_size = 1;
+        cart.config.has_chr_ram = true;
     }
     // Flags 6
-    byte = (u8)fgetc(rom);
     // PPU nametable mirroring style
-    /*** Set PPU mirroring here, (byte & 0x01) ? vertical : horizontal ***/
+    cart.config.mirroring = cart.rom[6] & 0x01;
+    ppu_set_mirror(cart.config.mirroring);
     // Presence of PRG RAM
-    has_prg_ram = ((byte & 0x02) >> 1) ? true : false;
+    cart.config.has_prg_ram = cart.rom[6] & 0x02;
     // 512 byte trainer before PRG data
-    if ((byte & 0x04) >> 2) return -4;
+    if ((cart.rom[6] & 0x04)) return -4;
     // Ignore nametable mirroring, provide 4-screen VRAM
-    vram = ((byte & 0x08) >> 3) ? true : false;
-    // Mapper lower nybble
-    mapper = byte >> 4;
+    cart.config.has_vram = cart.rom[6] & 0x08;
     // Flags 7
-    byte = (u8)fgetc(rom);
-    // Mapper upper nybble
-    mapper |= (byte & 0xF0);
+    // Mapper lower nybble from flags 6, mapper upper nybble from flags 7
+    cart.config.mapper = (cart.rom[6] >> 4) | (cart.rom[7] & 0xF0);
     // Flags 8
-    byte = (u8)fgetc(rom);
     // PRG RAM size
-    prg_ram_size = (byte != 0) ? byte : 1;
+    cart.config.prg_ram_size = (cart.rom[8] != 0) ? cart.rom[8] : 1;
     // Flags 9
-    byte = (u8)fgetc(rom);
     // NTSC or PAL
-    if (byte != 0) return -5;
-    // Flags 10
-    byte = (u8)fgetc(rom);
-    // Flags 11-15
-    byte = (u8)fgetc(rom);
-    byte = (u8)fgetc(rom);
-    byte = (u8)fgetc(rom);
-    byte = (u8)fgetc(rom);
-    byte = (u8)fgetc(rom);
+    if (cart.rom[9] != 0) return -5;
+    // Flags 10-15 unused
 
     // Load PRG data
-    prg = malloc(prg_size * 0x4000 * sizeof(u8));
-    for (int i = 0; i < prg_size * 0x4000; i++) {
-        *(prg + i) = (u8)fgetc(rom);
-    }
+    cart.prg = cart.rom + NES_HEADER_SIZE;
+
     // Load CHR data
-    chr = malloc(chr_size * 0x2000 * sizeof(u8));
-    for (int i = 0; i < chr_size * 0x2000; i++) {
-        *(chr + i) = (u8)fgetc(rom);
-    }
+    cart.chr = cart.rom + NES_HEADER_SIZE +
+               cart.config.prg_size * NES_PRG_DATA_UNIT_SIZE;
     // Allocate PRG RAM
-    if (has_prg_ram) prg_ram = malloc(prg_ram_size * 0x2000 * sizeof(u8));
+    if (cart.config.has_prg_ram)
+        cart.prg_ram =
+          malloc(cart.config.prg_ram_size * NES_PRG_RAM_UNIT_SIZE * sizeof(u8));
 
-    fclose(rom);
-
-    switch (mapper) {
+    switch (cart.config.mapper) {
         case 0:
-            mapper0_init(&prg_bank, &chr_bank);
+            mapper0_init((u32*)&prg_map, (u32*)&chr_map, cart.config.prg_size);
             break;
         default:
-            printf("Mapper %d not supported.\n", mapper);
+            printf("Mapper %d not supported.\n", cart.config.mapper);
             return -6;
     }
     return 0;
 }
 
-void reset() {
-    free(prg);
-    free(chr);
-    free(prg_ram);
+u8 cartridge_prg_rd(u16 addr) {
+    if (addr >= NES_PRG_DATA_OFFSET) {
+        int slot = (addr - NES_PRG_DATA_OFFSET) / NES_PRG_SLOT_SIZE;
+        int offset = (addr - NES_PRG_DATA_OFFSET) % NES_PRG_SLOT_SIZE;
+        return cart.prg[prg_map[slot] + offset];
+    } else {
+        return cart.config.has_prg_ram ? cart.prg_ram[addr - NES_PRG_RAM_OFFSET]
+                                       : 0;
+    }
+}
+
+u8 cartridge_chr_rd(u16 addr) {
+    int slot = addr / NES_CHR_SLOT_SIZE;
+    int offset = addr % NES_CHR_SLOT_SIZE;
+    return cart.chr[chr_map[slot] + offset];
+}
+
+void cartridge_prg_wr(u16 addr, u8 data) {
+    // Use mapper's write implementation
+}
+
+void cartridge_chr_wr(u16 addr, u8 data) {
+    if (cart.config.has_chr_ram) cart.chr[addr] = data;
+}
+
+void reset(void) {
+    free(cart.rom);
+    if (cart.config.has_prg_ram) free(cart.prg_ram);
 }
