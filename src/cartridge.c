@@ -1,6 +1,6 @@
 #include "cartridge.h"
 
-#include "mappers/mapper0.h"
+#include "mapper0.h"
 #include "nes.h"
 #include "ppu.h"
 
