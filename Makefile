@@ -48,4 +48,4 @@ test: $(OBJ) $(ODIR)/test.o
 	$(CC) -o $@ $^ $(CFLAGS) $(DBGCFLAGS)
 
 clean:
-	del $(ODIR)/*.o *.exe
+	del $(ODIR)\*.o *.exe
