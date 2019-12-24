@@ -124,7 +124,8 @@ static void INT_NMI(void) {
     tick();
     u8 addrh = rd(NES_NMI_HANDLE_OFFSET + 1);
     cpu.PC = addrl | (addrh << 8);
-    cpu.nmi = 0;
+    // CPU clears NMI after handling
+    cpu_set_NMI(0);
     tick();
 }
 
@@ -162,7 +163,6 @@ static void INT_IRQ(void) {
     tick();
     u8 addrh = rd(NES_IRQ_BRK_HANDLE_OFFSET + 1);
     cpu.PC = addrl | (addrh << 8);
-    cpu.irq = 0;
     tick();
 }
 

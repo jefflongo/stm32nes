@@ -56,3 +56,6 @@ dkms.conf
 
 # ROMS
 roms/
+
+# Build folder
+build/

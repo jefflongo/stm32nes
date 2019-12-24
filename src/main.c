@@ -5,7 +5,10 @@
 #include <stdlib.h>
 
 int main() {
-    if (cartridge_init("roms/smb.nes") != 0) return -1;
+    if (cartridge_init("roms/smb.nes") != 0) {
+        printf("Failed to load ROM");
+        return -1;
+    }
 
     cpu_init();
     while (1) {
