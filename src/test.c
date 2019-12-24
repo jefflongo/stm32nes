@@ -1,5 +1,5 @@
-#include "../cartridge.h"
-#include "../cpu.h"
+#include "cartridge.h"
+#include "cpu.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -76,7 +76,7 @@ static void parse_verification_state(const char* line, char* s, int len) {
 static bool test_cpu() {
     // Load verification log and test rom
     FILE* test = fopen("test/nestest.txt", "rb");
-    if (!test || load_rom("test/nestest.nes") != 0) {
+    if (!test || cartridge_init("test/nestest.nes") != 0) {
         printf("CPU TEST FAILURE\nVerification files not found.\n");
         return false;
     }

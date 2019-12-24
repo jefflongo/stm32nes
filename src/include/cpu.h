@@ -10,6 +10,8 @@ typedef struct {
     u8 X;
     u8 Y;
     u8 P;
+    bool nmi;
+    bool irq;
     u64 cycle;
 } cpu_state_t;
 

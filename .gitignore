@@ -53,3 +53,9 @@ dkms.conf
 
 # VS Code
 .vscode/
+
+# ROMS
+roms/
+
+# Build folder
+build/
