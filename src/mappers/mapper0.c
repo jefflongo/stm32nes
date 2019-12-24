@@ -1,6 +1,6 @@
-#include "mapper0.h"
+#include "mappers/mapper0.h"
 
-#include "../nes.h"
+#include "nes.h"
 
 void mapper0_init(u32* prg_map, u32* chr_map, u8 prg_units) {
     // Perform 1:1 mapping for prg and chr
