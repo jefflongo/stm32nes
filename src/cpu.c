@@ -28,9 +28,9 @@ static cpu_state_t cpu;
 static u8 ram[NES_RAM_SIZE];
 
 static void tick(void) {
-    // ppu_tick();
-    // ppu_tick();
-    // ppu_tick();
+    ppu_tick();
+    ppu_tick();
+    ppu_tick();
     cpu.cycle++;
 }
 
