@@ -42,8 +42,13 @@ static u8 rd(u16 addr) {
             return ram[addr % RAM_SIZE];
         case 0x2000 ... 0x3FFF:
             return ppu_rd(addr);
-        case 0x4000 ... 0x4015:
-            // APU, Peripherals..
+        case 0x4000 ... 0x4013:
+            // APU
+            return 0;
+        case 0x4014:
+            return ppu_rd(addr);
+        case 0x4015:
+            // APU
             return 0;
         case 0x4016:
             // return controller_rd(0);
@@ -64,8 +69,15 @@ static void wr(u16 addr, u8 data) {
         case 0x2000 ... 0x3FFF:
             ppu_wr(0x2000 + addr % PPU_REGISTER_FILE_SIZE, data);
             return;
-        case 0x4000 ... 0x4015:
-            // APU, Peripherals..
+        case 0x4000 ... 0x4013:
+            // APU
+            return;
+        case OAM_DMA_OFFSET:
+            for (int i = 0; i < 0x100; i++)
+                ppu_wr(OAM_DATA_OFFSET, rd((data << 2) | i));
+            return;
+        case 0x4015:
+            // APU
             return;
         case 0x4016:
             // controller_wr(data);

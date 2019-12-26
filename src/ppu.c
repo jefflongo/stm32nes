@@ -65,7 +65,7 @@ static void rd_ppu_data(u8* data) {
     ppu.reg.bus_latch = *data;
 }
 
-static void wr_ppu_status(u8 data) {
+static void wr_ppu_ctrl(u8 data) {
     if (ppu.ready) {
         ppu.reg.ppu_ctrl = data;
         // t: ...BA.. ........ = d: ......BA
@@ -211,7 +211,7 @@ u8 ppu_rd(u16 addr) {
 void ppu_wr(u16 addr, u8 data) {
     switch (addr) {
         case PPU_CTRL_OFFSET:
-            wr_ppu_status(data);
+            wr_ppu_ctrl(data);
             break;
         case PPU_MASK_OFFSET:
             wr_ppu_mask(data);
