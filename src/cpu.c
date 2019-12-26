@@ -24,13 +24,13 @@ enum {
 
 // Registers, interrupt flags, cycle tracker
 static cpu_state_t cpu;
-// System RAM
-static u8 ram[NES_RAM_SIZE];
+// Internal CPU memory
+static u8 ram[RAM_SIZE];
 
 static void tick(void) {
-    // ppu_tick();
-    // ppu_tick();
-    // ppu_tick();
+    ppu_tick();
+    ppu_tick();
+    ppu_tick();
     cpu.cycle++;
 }
 
@@ -39,9 +39,9 @@ static void tick(void) {
 static u8 rd(u16 addr) {
     switch (addr) {
         case 0x0000 ... 0x1FFF:
-            return ram[addr % NES_RAM_SIZE];
+            return ram[addr % RAM_SIZE];
         case 0x2000 ... 0x3FFF:
-            return ppu_reg_access(addr % 0x100, 0, READ);
+            return ppu_rd(addr);
         case 0x4000 ... 0x4015:
             // APU, Peripherals..
             return 0;
@@ -59,10 +59,10 @@ static u8 rd(u16 addr) {
 static void wr(u16 addr, u8 data) {
     switch (addr) {
         case 0x0000 ... 0x1FFF:
-            ram[addr % NES_RAM_SIZE] = data;
+            ram[addr % RAM_SIZE] = data;
             return;
         case 0x2000 ... 0x3FFF:
-            ppu_reg_access(addr % 0x100, 0, WRITE);
+            ppu_wr(0x2000 + addr % PPU_REGISTER_FILE_SIZE, data);
             return;
         case 0x4000 ... 0x4015:
             // APU, Peripherals..
@@ -81,30 +81,32 @@ static void wr(u16 addr, u8 data) {
 /* Stack operations */
 
 static void push(u8 data) {
-    wr(NES_STACK_OFFSET | cpu.S--, data);
+    wr(STACK_OFFSET | cpu.registers.s--, data);
 }
 
 static u8 pull(void) {
-    return rd(NES_STACK_OFFSET | ++cpu.S);
+    return rd(STACK_OFFSET | ++cpu.registers.s);
 }
 
 /* Flag adjustment */
 
 static inline void updateC(u16 r) {
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, r > 0xFF);
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_CARRY, r > 0xFF);
 }
 
 static inline void updateZ(u8 d) {
-    ASSIGN_NTH_BIT(cpu.P, STATUS_ZERO, d == 0);
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_ZERO, d == 0);
 }
 
 static inline void updateV(u8 d1, u8 d2, u16 r) {
     ASSIGN_NTH_BIT(
-      cpu.P, STATUS_OVERFLOW, NTH_BIT((0xFF ^ d1 ^ d2) & (d1 ^ r), 7));
+      cpu.registers.p,
+      STATUS_OVERFLOW,
+      NTH_BIT((0xFF ^ d1 ^ d2) & (d1 ^ r), 7));
 }
 
 static inline void updateN(u8 d) {
-    ASSIGN_NTH_BIT(cpu.P, STATUS_NEGATIVE, NTH_BIT(d, 7));
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_NEGATIVE, NTH_BIT(d, 7));
 }
 
 /* Interrupts */
@@ -114,17 +116,17 @@ static void INT_NMI(void) {
     tick();
     // Suppress PC increment
     tick();
-    push(cpu.PC >> 8);
+    push(cpu.registers.pc >> 8);
     tick();
-    push(cpu.PC & 0xFF);
+    push(cpu.registers.pc & 0xFF);
     tick();
-    push(cpu.P | (1 << STATUS_UNUSED));
+    push(cpu.registers.p | (1 << STATUS_UNUSED));
     tick();
-    SET_NTH_BIT(cpu.P, STATUS_INT_DISABLE);
-    u8 addrl = rd(NES_NMI_HANDLE_OFFSET);
+    SET_NTH_BIT(cpu.registers.p, STATUS_INT_DISABLE);
+    u8 addrl = rd(NMI_HANDLE_OFFSET);
     tick();
-    u8 addrh = rd(NES_NMI_HANDLE_OFFSET + 1);
-    cpu.PC = addrl | (addrh << 8);
+    u8 addrh = rd(NMI_HANDLE_OFFSET + 1);
+    cpu.registers.pc = addrl | (addrh << 8);
     // CPU clears NMI after handling
     cpu_set_NMI(0);
     tick();
@@ -136,15 +138,15 @@ static void INT_RESET(void) {
     // Suppress PC increment
     tick();
     // Suppress the 3 writes to the stack
-    cpu.S -= 3;
+    cpu.registers.s -= 3;
     tick();
     tick();
     tick();
-    SET_NTH_BIT(cpu.P, STATUS_INT_DISABLE);
-    u8 addrl = rd(NES_RESET_HANDLE_OFFSET);
+    SET_NTH_BIT(cpu.registers.p, STATUS_INT_DISABLE);
+    u8 addrl = rd(RESET_HANDLE_OFFSET);
     tick();
-    u8 addrh = rd(NES_RESET_HANDLE_OFFSET + 1);
-    cpu.PC = addrl | (addrh << 8);
+    u8 addrh = rd(RESET_HANDLE_OFFSET + 1);
+    cpu.registers.pc = addrl | (addrh << 8);
     tick();
 }
 
@@ -153,33 +155,33 @@ static void INT_IRQ(void) {
     tick();
     // Suppress PC increment
     tick();
-    push(cpu.PC >> 8);
+    push(cpu.registers.pc >> 8);
     tick();
-    push(cpu.PC & 0xFF);
+    push(cpu.registers.pc & 0xFF);
     tick();
-    push(cpu.P | (1 << STATUS_UNUSED));
+    push(cpu.registers.p | (1 << STATUS_UNUSED));
     tick();
-    SET_NTH_BIT(cpu.P, STATUS_INT_DISABLE);
-    u8 addrl = rd(NES_IRQ_BRK_HANDLE_OFFSET);
+    SET_NTH_BIT(cpu.registers.p, STATUS_INT_DISABLE);
+    u8 addrl = rd(IRQ_BRK_HANDLE_OFFSET);
     tick();
-    u8 addrh = rd(NES_IRQ_BRK_HANDLE_OFFSET + 1);
-    cpu.PC = addrl | (addrh << 8);
+    u8 addrh = rd(IRQ_BRK_HANDLE_OFFSET + 1);
+    cpu.registers.pc = addrl | (addrh << 8);
     tick();
 }
 
 static void BRK(void) {
-    cpu.PC++;
+    cpu.registers.pc++;
     tick();
-    push(cpu.PC >> 8);
+    push(cpu.registers.pc >> 8);
     tick();
-    push(cpu.PC & 0xFF);
-    push(cpu.P | (1 << STATUS_BREAK) | (1 << STATUS_UNUSED));
+    push(cpu.registers.pc & 0xFF);
+    push(cpu.registers.p | (1 << STATUS_BREAK) | (1 << STATUS_UNUSED));
     tick();
-    SET_NTH_BIT(cpu.P, STATUS_INT_DISABLE);
-    u8 addrl = rd(NES_IRQ_BRK_HANDLE_OFFSET);
+    SET_NTH_BIT(cpu.registers.p, STATUS_INT_DISABLE);
+    u8 addrl = rd(IRQ_BRK_HANDLE_OFFSET);
     tick();
-    u8 addrh = rd(NES_IRQ_BRK_HANDLE_OFFSET + 1);
-    cpu.PC = addrl | (addrh << 8);
+    u8 addrh = rd(IRQ_BRK_HANDLE_OFFSET + 1);
+    cpu.registers.pc = addrl | (addrh << 8);
     tick();
 }
 
@@ -188,7 +190,7 @@ static void BRK(void) {
 // Immediate:
 // - Return current PC and increment PC (immediate stored here)
 static u16 imm(void) {
-    return cpu.PC++;
+    return cpu.registers.pc++;
 }
 // ZP:
 // - Read the immediate, increment PC
@@ -203,7 +205,7 @@ static u16 zp(void) {
 // - Calculate imm + X, include wraparound
 // - Return the new address
 static u16 zpx(void) {
-    u16 addr = (zp() + cpu.X) % 0x100;
+    u16 addr = (zp() + cpu.registers.x) % 0x100;
     tick();
     return addr;
 }
@@ -212,7 +214,7 @@ static u16 zpx(void) {
 // - Calculate imm + Y, include wraparound
 // - Return the new address
 static u16 zpy(void) {
-    u16 addr = (zp() + cpu.Y) % 0x100;
+    u16 addr = (zp() + cpu.registers.y) % 0x100;
     tick();
     return addr;
 }
@@ -233,7 +235,7 @@ static u16 absl(void) {
 static u16 absx_rd(void) {
     u16 addrl = zp();
     u8 addrh = rd(imm());
-    addrl += cpu.X;
+    addrl += cpu.registers.x;
     tick();
     if ((addrl & 0xFF00) != 0) {
         addrl %= 0x100;
@@ -246,7 +248,7 @@ static u16 absx_rd(void) {
 static u16 absx_wr(void) {
     u16 addrl = zp();
     u8 addrh = rd(imm());
-    addrl += cpu.X;
+    addrl += cpu.registers.x;
     tick();
     if ((addrl & 0xFF00) != 0) {
         addrl %= 0x100;
@@ -263,7 +265,7 @@ static u16 absx_wr(void) {
 static u16 absy_rd(void) {
     u16 addrl = zp();
     u8 addrh = rd(imm());
-    addrl += cpu.Y;
+    addrl += cpu.registers.y;
     tick();
     if ((addrl & 0xFF00) != 0) {
         addrl %= 0x100;
@@ -276,7 +278,7 @@ static u16 absy_rd(void) {
 static u16 absy_wr(void) {
     u16 addrl = zp();
     u8 addrh = rd(imm());
-    addrl += cpu.Y;
+    addrl += cpu.registers.y;
     tick();
     if ((addrl & 0xFF00) != 0) {
         addrl %= 0x100;
@@ -324,7 +326,7 @@ static u16 indy_rd(void) {
     u16 addrl = rd(ptr);
     tick();
     u8 addrh = rd((ptr + 1) % 0x100);
-    addrl += cpu.Y;
+    addrl += cpu.registers.y;
     tick();
     if ((addrl & 0xFF00) != 0) {
         addrl %= 0x100;
@@ -339,7 +341,7 @@ static u16 indy_wr(void) {
     u16 addrl = rd(ptr);
     tick();
     u8 addrh = rd((ptr + 1) % 0x100);
-    addrl += cpu.Y;
+    addrl += cpu.registers.y;
     tick();
     if ((addrl & 0xFF00) != 0) {
         addrl %= 0x100;
@@ -354,9 +356,9 @@ static u16 indy_wr(void) {
 // - If adding the offset overflowed the low byte of PC, add a cycle
 static u16 rel(void) {
     s8 imm = (s8)zp();
-    u16 addr = cpu.PC + imm;
+    u16 addr = cpu.registers.pc + imm;
     tick();
-    if ((addr & 0x100) != (cpu.PC & 0x100)) tick();
+    if ((addr & 0x100) != (cpu.registers.pc & 0x100)) tick();
     return addr;
 }
 
@@ -367,7 +369,7 @@ static void LDA(mode m) {
     u8 d = rd(m());
     updateZ(d);
     updateN(d);
-    cpu.A = d;
+    cpu.registers.a = d;
     tick();
 }
 
@@ -375,7 +377,7 @@ static void LDX(mode m) {
     u8 d = rd(m());
     updateZ(d);
     updateN(d);
-    cpu.X = d;
+    cpu.registers.x = d;
     tick();
 }
 
@@ -383,62 +385,62 @@ static void LDY(mode m) {
     u8 d = rd(m());
     updateZ(d);
     updateN(d);
-    cpu.Y = d;
+    cpu.registers.y = d;
     tick();
 }
 
 static void STA(mode m) {
-    wr(m(), cpu.A);
+    wr(m(), cpu.registers.a);
     tick();
 }
 
 static void STX(mode m) {
-    wr(m(), cpu.X);
+    wr(m(), cpu.registers.x);
     tick();
 }
 
 static void STY(mode m) {
-    wr(m(), cpu.Y);
+    wr(m(), cpu.registers.y);
     tick();
 }
 
 static void TXA(void) {
-    updateZ(cpu.X);
-    updateN(cpu.X);
-    cpu.A = cpu.X;
+    updateZ(cpu.registers.x);
+    updateN(cpu.registers.x);
+    cpu.registers.a = cpu.registers.x;
     tick();
 }
 
 static void TXS(void) {
-    cpu.S = cpu.X;
+    cpu.registers.s = cpu.registers.x;
     tick();
 }
 
 static void TYA(void) {
-    updateZ(cpu.Y);
-    updateN(cpu.Y);
-    cpu.A = cpu.Y;
+    updateZ(cpu.registers.y);
+    updateN(cpu.registers.y);
+    cpu.registers.a = cpu.registers.y;
     tick();
 }
 
 static void TAX(void) {
-    updateZ(cpu.A);
-    updateN(cpu.A);
-    cpu.X = cpu.A;
+    updateZ(cpu.registers.a);
+    updateN(cpu.registers.a);
+    cpu.registers.x = cpu.registers.a;
     tick();
 }
 
 static void TAY(void) {
-    updateZ(cpu.A);
-    updateN(cpu.A);
-    cpu.Y = cpu.A;
+    updateZ(cpu.registers.a);
+    updateN(cpu.registers.a);
+    cpu.registers.y = cpu.registers.a;
     tick();
 }
 
 static void TSX(void) {
-    updateZ(cpu.S);
-    updateN(cpu.S);
-    cpu.X = cpu.S;
+    updateZ(cpu.registers.s);
+    updateN(cpu.registers.s);
+    cpu.registers.x = cpu.registers.s;
     tick();
 }
 
@@ -446,7 +448,7 @@ static void TSX(void) {
 static void PHP(void) {
     // Throw away next byte
     tick();
-    push(cpu.P | (1 << STATUS_BREAK) | (1 << STATUS_UNUSED));
+    push(cpu.registers.p | (1 << STATUS_BREAK) | (1 << STATUS_UNUSED));
     tick();
 }
 
@@ -455,14 +457,14 @@ static void PLP(void) {
     tick();
     // S increment
     tick();
-    cpu.P = (pull() & ~(1 << STATUS_BREAK)) | (1 << STATUS_UNUSED);
+    cpu.registers.p = (pull() & ~(1 << STATUS_BREAK)) | (1 << STATUS_UNUSED);
     tick();
 }
 
 static void PHA(void) {
     // Throw away next byte
     tick();
-    push(cpu.A);
+    push(cpu.registers.a);
     tick();
 }
 
@@ -471,71 +473,72 @@ static void PLA(void) {
     tick();
     // S increment
     tick();
-    cpu.A = pull();
-    updateZ(cpu.A);
-    updateN(cpu.A);
+    cpu.registers.a = pull();
+    updateZ(cpu.registers.a);
+    updateN(cpu.registers.a);
     tick();
 }
 
 // Arithmetic / Logical operations
 static void _ADC(mode m) {
     u8 d = rd(m());
-    u16 s = cpu.A + d + NTH_BIT(cpu.P, STATUS_CARRY);
+    u16 s = cpu.registers.a + d + NTH_BIT(cpu.registers.p, STATUS_CARRY);
     updateC(s);
     updateZ((u8)s);
-    updateV(cpu.A, d, s);
+    updateV(cpu.registers.a, d, s);
     updateN((u8)s);
-    cpu.A = (u8)s;
+    cpu.registers.a = (u8)s;
     tick();
 }
 
 static void SBC(mode m) {
     u8 d = rd(m());
-    u16 s = cpu.A + (d ^ 0xFF) + NTH_BIT(cpu.P, STATUS_CARRY);
+    u16 s =
+      cpu.registers.a + (d ^ 0xFF) + NTH_BIT(cpu.registers.p, STATUS_CARRY);
     updateC(s);
     updateZ((u8)s);
-    updateV(cpu.A, (d ^ 0xFF), s);
+    updateV(cpu.registers.a, (d ^ 0xFF), s);
     updateN((u8)s);
-    cpu.A = (u8)s;
+    cpu.registers.a = (u8)s;
     tick();
 }
 
 static void AND(mode m) {
     u8 d = rd(m());
-    cpu.A &= d;
-    updateZ(cpu.A);
-    updateN(cpu.A);
+    cpu.registers.a &= d;
+    updateZ(cpu.registers.a);
+    updateN(cpu.registers.a);
     tick();
 }
 
 static void EOR(mode m) {
     u8 d = rd(m());
-    cpu.A ^= d;
-    updateZ(cpu.A);
-    updateN(cpu.A);
+    cpu.registers.a ^= d;
+    updateZ(cpu.registers.a);
+    updateN(cpu.registers.a);
     tick();
 }
 
 static void ORA(mode m) {
     u8 d = rd(m());
-    cpu.A |= d;
-    updateZ(cpu.A);
-    updateN(cpu.A);
+    cpu.registers.a |= d;
+    updateZ(cpu.registers.a);
+    updateN(cpu.registers.a);
     tick();
 }
 
 static void BIT(mode m) {
     u8 d = rd(m());
-    updateZ(cpu.A & d);
-    ASSIGN_NTH_BIT(cpu.P, STATUS_NEGATIVE, NTH_BIT(d, 7));
-    ASSIGN_NTH_BIT(cpu.P, STATUS_OVERFLOW, NTH_BIT(d, 6));
+    updateZ(cpu.registers.a & d);
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_NEGATIVE, NTH_BIT(d, 7));
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_OVERFLOW, NTH_BIT(d, 6));
     tick();
 }
 
 // Compares
 static void CMP(mode m) {
     u8 d = rd(m());
-    u16 s = cpu.A + (d ^ 0xFF) + 1;
+    u16 s = cpu.registers.a + (d ^ 0xFF) + 1;
     updateC(s);
     updateZ((u8)s);
     updateN((u8)s);
@@ -544,7 +547,7 @@ static void CMP(mode m) {
 
 static void CPX(mode m) {
     u8 d = rd(m());
-    u16 s = cpu.X + (d ^ 0xFF) + 1;
+    u16 s = cpu.registers.x + (d ^ 0xFF) + 1;
     updateC(s);
     updateZ((u8)s);
     updateN((u8)s);
@@ -553,7 +556,7 @@ static void CPX(mode m) {
 
 static void CPY(mode m) {
     u8 d = rd(m());
-    u16 s = cpu.Y + (d ^ 0xFF) + 1;
+    u16 s = cpu.registers.y + (d ^ 0xFF) + 1;
     updateC(s);
     updateZ((u8)s);
     updateN((u8)s);
@@ -574,16 +577,16 @@ static void INC(mode m) {
 }
 
 static void INX(void) {
-    cpu.X++;
-    updateZ(cpu.X);
-    updateN(cpu.X);
+    cpu.registers.x++;
+    updateZ(cpu.registers.x);
+    updateN(cpu.registers.x);
     tick();
 }
 
 static void INY(void) {
-    cpu.Y++;
-    updateZ(cpu.Y);
-    updateN(cpu.Y);
+    cpu.registers.y++;
+    updateZ(cpu.registers.y);
+    updateN(cpu.registers.y);
     tick();
 }
 
@@ -600,16 +603,16 @@ static void DEC(mode m) {
 }
 
 static void DEX(void) {
-    cpu.X--;
-    updateZ(cpu.X);
-    updateN(cpu.X);
+    cpu.registers.x--;
+    updateZ(cpu.registers.x);
+    updateN(cpu.registers.x);
     tick();
 }
 
 static void DEY(void) {
-    cpu.Y--;
-    updateZ(cpu.Y);
-    updateN(cpu.Y);
+    cpu.registers.y--;
+    updateZ(cpu.registers.y);
+    updateN(cpu.registers.y);
     tick();
 }
 
@@ -618,7 +621,7 @@ static void ASL(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 7));
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_CARRY, NTH_BIT(d, 7));
     d <<= 1;
     updateZ(d);
     updateN(d);
@@ -628,10 +631,10 @@ static void ASL(mode m) {
 }
 
 static void ASL_A(void) {
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(cpu.A, 7));
-    cpu.A <<= 1;
-    updateZ(cpu.A);
-    updateN(cpu.A);
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_CARRY, NTH_BIT(cpu.registers.a, 7));
+    cpu.registers.a <<= 1;
+    updateZ(cpu.registers.a);
+    updateN(cpu.registers.a);
     tick();
 }
 
@@ -639,7 +642,7 @@ static void LSR(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 0));
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_CARRY, NTH_BIT(d, 0));
     d >>= 1;
     updateZ(d);
     updateN(d);
@@ -649,10 +652,10 @@ static void LSR(mode m) {
 }
 
 static void LSR_A(void) {
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(cpu.A, 0));
-    cpu.A >>= 1;
-    updateZ(cpu.A);
-    updateN(cpu.A);
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_CARRY, NTH_BIT(cpu.registers.a, 0));
+    cpu.registers.a >>= 1;
+    updateZ(cpu.registers.a);
+    updateN(cpu.registers.a);
     tick();
 }
 
@@ -660,8 +663,8 @@ static void ROL(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    bool c = NTH_BIT(cpu.P, STATUS_CARRY);
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 7));
+    bool c = NTH_BIT(cpu.registers.p, STATUS_CARRY);
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_CARRY, NTH_BIT(d, 7));
     d = (d << 1) | c;
     updateZ(d);
     updateN(d);
@@ -671,11 +674,11 @@ static void ROL(mode m) {
 }
 
 static void ROL_A(void) {
-    bool c = NTH_BIT(cpu.P, STATUS_CARRY);
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(cpu.A, 7));
-    cpu.A = (cpu.A << 1) | c;
-    updateZ(cpu.A);
-    updateN(cpu.A);
+    bool c = NTH_BIT(cpu.registers.p, STATUS_CARRY);
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_CARRY, NTH_BIT(cpu.registers.a, 7));
+    cpu.registers.a = (cpu.registers.a << 1) | c;
+    updateZ(cpu.registers.a);
+    updateN(cpu.registers.a);
     tick();
 }
 
@@ -683,8 +686,8 @@ static void ROR(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    bool c = NTH_BIT(cpu.P, STATUS_CARRY);
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 0));
+    bool c = NTH_BIT(cpu.registers.p, STATUS_CARRY);
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_CARRY, NTH_BIT(d, 0));
     d = (d >> 1) | (c << 7);
     updateZ(d);
     updateN(d);
@@ -694,30 +697,30 @@ static void ROR(mode m) {
 }
 
 static void ROR_A(void) {
-    bool c = NTH_BIT(cpu.P, STATUS_CARRY);
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(cpu.A, 0));
-    cpu.A = (cpu.A >> 1) | (c << 7);
-    updateZ(cpu.A);
-    updateN(cpu.A);
+    bool c = NTH_BIT(cpu.registers.p, STATUS_CARRY);
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_CARRY, NTH_BIT(cpu.registers.a, 0));
+    cpu.registers.a = (cpu.registers.a >> 1) | (c << 7);
+    updateZ(cpu.registers.a);
+    updateN(cpu.registers.a);
     tick();
 }
 
 // Jumps / calls
 static void JMP(mode m) {
-    cpu.PC = m();
+    cpu.registers.pc = m();
 }
 
 static void JSR(void) {
-    u8 addrl = rd(cpu.PC);
-    cpu.PC += 1;
+    u8 addrl = rd(cpu.registers.pc);
+    cpu.registers.pc++;
     tick();
     tick();
-    push(cpu.PC >> 8);
+    push(cpu.registers.pc >> 8);
     tick();
-    push(cpu.PC & 0xFF);
+    push(cpu.registers.pc & 0xFF);
     tick();
-    u8 addrh = rd(cpu.PC);
-    cpu.PC = addrl | (addrh << 8);
+    u8 addrh = rd(cpu.registers.pc);
+    cpu.registers.pc = addrl | (addrh << 8);
     tick();
 }
 
@@ -729,9 +732,9 @@ static void RTS(void) {
     u8 addrl = pull();
     tick();
     u8 addrh = pull();
-    cpu.PC = addrl | (addrh << 8);
+    cpu.registers.pc = addrl | (addrh << 8);
     tick();
-    cpu.PC += 1;
+    cpu.registers.pc++;
     tick();
 }
 
@@ -740,121 +743,121 @@ static void RTI(void) {
     tick();
     // S increment
     tick();
-    cpu.P = (pull() & ~(1 << STATUS_BREAK)) | (1 << STATUS_UNUSED);
+    cpu.registers.p = (pull() & ~(1 << STATUS_BREAK)) | (1 << STATUS_UNUSED);
     tick();
     u8 addrl = pull();
     tick();
     u8 addrh = pull();
-    cpu.PC = addrl | (addrh << 8);
+    cpu.registers.pc = addrl | (addrh << 8);
     tick();
 }
 
 // Branches
 static void BPL(mode m) {
-    if (!NTH_BIT(cpu.P, STATUS_NEGATIVE)) {
-        cpu.PC = m();
+    if (!NTH_BIT(cpu.registers.p, STATUS_NEGATIVE)) {
+        cpu.registers.pc = m();
     } else {
-        cpu.PC++;
+        cpu.registers.pc++;
         tick();
     }
 }
 
 static void BMI(mode m) {
-    if (NTH_BIT(cpu.P, STATUS_NEGATIVE)) {
-        cpu.PC = m();
+    if (NTH_BIT(cpu.registers.p, STATUS_NEGATIVE)) {
+        cpu.registers.pc = m();
     } else {
-        cpu.PC++;
+        cpu.registers.pc++;
         tick();
     }
 }
 
 static void BVC(mode m) {
-    if (!NTH_BIT(cpu.P, STATUS_OVERFLOW)) {
-        cpu.PC = m();
+    if (!NTH_BIT(cpu.registers.p, STATUS_OVERFLOW)) {
+        cpu.registers.pc = m();
     } else {
-        cpu.PC++;
+        cpu.registers.pc++;
         tick();
     }
 }
 
 static void BVS(mode m) {
-    if (NTH_BIT(cpu.P, STATUS_OVERFLOW)) {
-        cpu.PC = m();
+    if (NTH_BIT(cpu.registers.p, STATUS_OVERFLOW)) {
+        cpu.registers.pc = m();
     } else {
-        cpu.PC++;
+        cpu.registers.pc++;
         tick();
     }
 }
 
 static void BCC(mode m) {
-    if (!NTH_BIT(cpu.P, STATUS_CARRY)) {
-        cpu.PC = m();
+    if (!NTH_BIT(cpu.registers.p, STATUS_CARRY)) {
+        cpu.registers.pc = m();
     } else {
-        cpu.PC++;
+        cpu.registers.pc++;
         tick();
     }
 }
 
 static void BCS(mode m) {
-    if (NTH_BIT(cpu.P, STATUS_CARRY)) {
-        cpu.PC = m();
+    if (NTH_BIT(cpu.registers.p, STATUS_CARRY)) {
+        cpu.registers.pc = m();
     } else {
-        cpu.PC++;
+        cpu.registers.pc++;
         tick();
     }
 }
 
 static void BNE(mode m) {
-    if (!NTH_BIT(cpu.P, STATUS_ZERO)) {
-        cpu.PC = m();
+    if (!NTH_BIT(cpu.registers.p, STATUS_ZERO)) {
+        cpu.registers.pc = m();
     } else {
-        cpu.PC++;
+        cpu.registers.pc++;
         tick();
     }
 }
 
 static void BEQ(mode m) {
-    if (NTH_BIT(cpu.P, STATUS_ZERO)) {
-        cpu.PC = m();
+    if (NTH_BIT(cpu.registers.p, STATUS_ZERO)) {
+        cpu.registers.pc = m();
     } else {
-        cpu.PC++;
+        cpu.registers.pc++;
         tick();
     }
 }
 
 // Status register operations
 static void CLC(void) {
-    CLEAR_NTH_BIT(cpu.P, STATUS_CARRY);
+    CLEAR_NTH_BIT(cpu.registers.p, STATUS_CARRY);
     tick();
 }
 
 static void CLI(void) {
-    CLEAR_NTH_BIT(cpu.P, STATUS_INT_DISABLE);
+    CLEAR_NTH_BIT(cpu.registers.p, STATUS_INT_DISABLE);
     tick();
 }
 
 static void CLV(void) {
-    CLEAR_NTH_BIT(cpu.P, STATUS_OVERFLOW);
+    CLEAR_NTH_BIT(cpu.registers.p, STATUS_OVERFLOW);
     tick();
 }
 
 static void CLD(void) {
-    CLEAR_NTH_BIT(cpu.P, STATUS_DECIMAL);
+    CLEAR_NTH_BIT(cpu.registers.p, STATUS_DECIMAL);
     tick();
 }
 
 static void SEC(void) {
-    SET_NTH_BIT(cpu.P, STATUS_CARRY);
+    SET_NTH_BIT(cpu.registers.p, STATUS_CARRY);
     tick();
 }
 
 static void SEI(void) {
-    SET_NTH_BIT(cpu.P, STATUS_INT_DISABLE);
+    SET_NTH_BIT(cpu.registers.p, STATUS_INT_DISABLE);
     tick();
 }
 
 static void SED(void) {
-    SET_NTH_BIT(cpu.P, STATUS_DECIMAL);
+    SET_NTH_BIT(cpu.registers.p, STATUS_DECIMAL);
     tick();
 }
 
@@ -873,24 +876,24 @@ static void LAX(mode m) {
     u8 d = rd(m());
     updateZ(d);
     updateN(d);
-    cpu.A = d;
-    cpu.X = d;
+    cpu.registers.a = d;
+    cpu.registers.x = d;
     tick();
 }
 
 static void SAX(mode m) {
     u16 addr = m();
-    wr(addr, cpu.A & cpu.X);
+    wr(addr, cpu.registers.a & cpu.registers.x);
     tick();
 }
 
 static void AXS(mode m) {
     u8 d = rd(m());
-    u16 s = (cpu.A & cpu.X) + (d ^ 0xFF) + 1;
+    u16 s = (cpu.registers.a & cpu.registers.x) + (d ^ 0xFF) + 1;
     updateC(s);
     updateZ((u8)s);
     updateN((u8)s);
-    cpu.X = (u8)s;
+    cpu.registers.x = (u8)s;
     tick();
 }
 
@@ -899,7 +902,7 @@ static void DCP(mode m) {
     u8 d = rd(addr);
     tick();
     d--;
-    u16 s = cpu.A + (d ^ 0xFF) + 1;
+    u16 s = cpu.registers.a + (d ^ 0xFF) + 1;
     updateC(s);
     updateZ((u8)s);
     updateN((u8)s);
@@ -913,12 +916,13 @@ static void ISC(mode m) {
     u8 d = rd(addr);
     tick();
     d++;
-    u16 s = cpu.A + (d ^ 0xFF) + NTH_BIT(cpu.P, STATUS_CARRY);
+    u16 s =
+      cpu.registers.a + (d ^ 0xFF) + NTH_BIT(cpu.registers.p, STATUS_CARRY);
     updateC(s);
     updateZ((u8)s);
-    updateV(cpu.A, (d ^ 0xFF), s);
+    updateV(cpu.registers.a, (d ^ 0xFF), s);
     updateN((u8)s);
-    cpu.A = (u8)s;
+    cpu.registers.a = (u8)s;
     tick();
     wr(addr, d);
     tick();
@@ -928,11 +932,11 @@ static void SLO(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 7));
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_CARRY, NTH_BIT(d, 7));
     d <<= 1;
-    cpu.A |= d;
-    updateZ(cpu.A);
-    updateN(cpu.A);
+    cpu.registers.a |= d;
+    updateZ(cpu.registers.a);
+    updateN(cpu.registers.a);
     tick();
     wr(addr, d);
     tick();
@@ -942,12 +946,12 @@ static void RLA(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    bool c = NTH_BIT(cpu.P, STATUS_CARRY);
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 7));
+    bool c = NTH_BIT(cpu.registers.p, STATUS_CARRY);
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_CARRY, NTH_BIT(d, 7));
     d = (d << 1) | c;
-    cpu.A &= d;
-    updateZ(cpu.A);
-    updateN(cpu.A);
+    cpu.registers.a &= d;
+    updateZ(cpu.registers.a);
+    updateN(cpu.registers.a);
     tick();
     wr(addr, d);
     tick();
@@ -957,11 +961,11 @@ static void SRE(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 0));
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_CARRY, NTH_BIT(d, 0));
     d >>= 1;
-    cpu.A ^= d;
-    updateZ(cpu.A);
-    updateN(cpu.A);
+    cpu.registers.a ^= d;
+    updateZ(cpu.registers.a);
+    updateN(cpu.registers.a);
     tick();
     wr(addr, d);
     tick();
@@ -971,15 +975,15 @@ static void RRA(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    bool c = NTH_BIT(cpu.P, STATUS_CARRY);
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 0));
+    bool c = NTH_BIT(cpu.registers.p, STATUS_CARRY);
+    ASSIGN_NTH_BIT(cpu.registers.p, STATUS_CARRY, NTH_BIT(d, 0));
     d = (d >> 1) | (c << 7);
-    u16 s = cpu.A + d + NTH_BIT(cpu.P, STATUS_CARRY);
+    u16 s = cpu.registers.a + d + NTH_BIT(cpu.registers.p, STATUS_CARRY);
     updateC(s);
     updateZ((u8)s);
-    updateV(cpu.A, d, s);
+    updateV(cpu.registers.a, d, s);
     updateN((u8)s);
-    cpu.A = (u8)s;
+    cpu.registers.a = (u8)s;
     tick();
     wr(addr, d);
     tick();
@@ -989,7 +993,7 @@ static void RRA(mode m) {
 
 static void exec_inst(void) {
     // Fetch
-    u8 op = rd(cpu.PC++);
+    u8 op = rd(cpu.registers.pc++);
     tick();
     // Decode/Execute
     switch (op) {
@@ -1446,31 +1450,37 @@ static void exec_inst(void) {
 }
 
 void cpu_init(void) {
-    cpu.A = 0x00;
-    cpu.X = 0x00;
-    cpu.Y = 0x00;
-    cpu.S = 0x00;
-    cpu.P = 0x00 | (1 << STATUS_INT_DISABLE) | (1 << STATUS_UNUSED);
-    cpu.nmi = 0;
-    cpu.irq = 0;
+    cpu.cycle = 0;
+    cpu.registers.a = 0x00;
+    cpu.registers.x = 0x00;
+    cpu.registers.y = 0x00;
+    cpu.registers.s = 0x00;
+    cpu.registers.p = 0x00 | (1 << STATUS_INT_DISABLE) | (1 << STATUS_UNUSED);
+    cpu.interrupt.nmi = 0;
+    cpu.interrupt.irq = 0;
     INT_RESET();
 }
 
+void cpu_reset(void) {
+    cpu_init();
+}
+
 void cpu_run(void) {
-    if (cpu.nmi) {
+    if (cpu.interrupt.nmi) {
         INT_NMI();
-    } else if (cpu.irq && !NTH_BIT(cpu.P, STATUS_INT_DISABLE)) {
+    } else if (
+      cpu.interrupt.irq && !NTH_BIT(cpu.registers.p, STATUS_INT_DISABLE)) {
         INT_IRQ();
     }
     exec_inst();
 }
 
 void cpu_set_NMI(bool enable) {
-    cpu.nmi = enable;
+    cpu.interrupt.nmi = enable;
 }
 
 void cpu_set_IRQ(bool enable) {
-    cpu.irq = enable;
+    cpu.interrupt.irq = enable;
 }
 
 void cpu_get_state(cpu_state_t* state) {

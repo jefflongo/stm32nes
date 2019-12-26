@@ -14,22 +14,22 @@ static void parse_cpu_state(char* s, int len) {
     cpu_get_state(&state);
 
     strcpy(s, "PC:");
-    sprintf(buffer, "%04X", state.PC);
+    sprintf(buffer, "%04X", state.registers.pc);
     strcat(s, buffer);
     strcat(s, " A:");
-    sprintf(buffer, "%02X", state.A);
+    sprintf(buffer, "%02X", state.registers.a);
     strcat(s, buffer);
     strcat(s, " X:");
-    sprintf(buffer, "%02X", state.X);
+    sprintf(buffer, "%02X", state.registers.x);
     strcat(s, buffer);
     strcat(s, " Y:");
-    sprintf(buffer, "%02X", state.Y);
+    sprintf(buffer, "%02X", state.registers.y);
     strcat(s, buffer);
     strcat(s, " P:");
-    sprintf(buffer, "%02X", state.P);
+    sprintf(buffer, "%02X", state.registers.p);
     strcat(s, buffer);
     strcat(s, " SP:");
-    sprintf(buffer, "%02X", state.S);
+    sprintf(buffer, "%02X", state.registers.s);
     strcat(s, buffer);
     strcat(s, " CYC:");
     sprintf(buffer, "%lu", (unsigned long)state.cycle);

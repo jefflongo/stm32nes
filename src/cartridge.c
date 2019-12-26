@@ -78,15 +78,15 @@ int cartridge_init(char* filename) {
     // Flags 10-15 unused
 
     // Load PRG data
-    cart.prg = cart.rom + NES_HEADER_SIZE;
+    cart.prg = cart.rom + HEADER_SIZE;
 
     // Load CHR data
-    cart.chr = cart.rom + NES_HEADER_SIZE +
-               cart.config.prg_size * NES_PRG_DATA_UNIT_SIZE;
+    cart.chr = cart.rom + HEADER_SIZE +
+               cart.config.prg_size * PRG_DATA_UNIT_SIZE;
     // Allocate PRG RAM
     if (cart.config.has_prg_ram)
         cart.prg_ram =
-          malloc(cart.config.prg_ram_size * NES_PRG_RAM_UNIT_SIZE * sizeof(u8));
+          malloc(cart.config.prg_ram_size * PRG_RAM_UNIT_SIZE * sizeof(u8));
 
     switch (cart.config.mapper) {
         case 0:
@@ -100,19 +100,19 @@ int cartridge_init(char* filename) {
 }
 
 u8 cartridge_prg_rd(u16 addr) {
-    if (addr >= NES_PRG_DATA_OFFSET) {
-        int slot = (addr - NES_PRG_DATA_OFFSET) / NES_PRG_SLOT_SIZE;
-        int offset = (addr - NES_PRG_DATA_OFFSET) % NES_PRG_SLOT_SIZE;
+    if (addr >= PRG_DATA_OFFSET) {
+        int slot = (addr - PRG_DATA_OFFSET) / PRG_SLOT_SIZE;
+        int offset = (addr - PRG_DATA_OFFSET) % PRG_SLOT_SIZE;
         return cart.prg[prg_map[slot] + offset];
     } else {
-        return cart.config.has_prg_ram ? cart.prg_ram[addr - NES_PRG_RAM_OFFSET]
+        return cart.config.has_prg_ram ? cart.prg_ram[addr - PRG_RAM_OFFSET]
                                        : 0;
     }
 }
 
 u8 cartridge_chr_rd(u16 addr) {
-    int slot = addr / NES_CHR_SLOT_SIZE;
-    int offset = addr % NES_CHR_SLOT_SIZE;
+    int slot = addr / CHR_SLOT_SIZE;
+    int offset = addr % CHR_SLOT_SIZE;
     return cart.chr[chr_map[slot] + offset];
 }
 
