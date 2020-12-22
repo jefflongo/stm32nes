@@ -1,5 +1,6 @@
 #include "cartridge.h"
 #include "cpu.h"
+#include "log.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -77,7 +78,7 @@ static bool test_cpu() {
     // Load verification log and test rom
     FILE* test = fopen("test/nestest.txt", "rb");
     if (!test || cartridge_init("test/nestest.nes") != 0) {
-        printf("CPU TEST FAILURE\nVerification files not found.\n");
+        LOG("CPU TEST FAILURE\nVerification files not found.\n");
         return false;
     }
 
@@ -93,15 +94,15 @@ static bool test_cpu() {
         parse_cpu_state(state, sizeof(state));
         parse_verification_state(line, exp, sizeof(exp));
         if (strcmp(state, exp)) {
-            printf("CPU TEST FAILURE\nExpected %s\nGot      %s\n", exp, state);
+            LOG("CPU TEST FAILURE\nExpected %s\nGot      %s\n", exp, state);
             return false;
         }
         // For debugging:
-        // printf("%s\n", state);
+        // LOG("%s\n", state);
         cpu_run();
     }
 
-    printf("CPU TEST SUCCESS\n");
+    LOG("CPU TEST SUCCESS\n");
     return true;
 }
 

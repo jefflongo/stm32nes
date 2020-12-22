@@ -13,7 +13,7 @@ OBJ = $(patsubst %,$(ODIR)/%,$(_OBJ))
 
 # Compile flags
 CC = gcc
-CFLAGS = -Wall -I$(IDIR) -I$(IDIR)/mappers
+CFLAGS = -std=c99 -Wall -I$(IDIR) -I$(IDIR)/mappers -DPRINTF_SUPPORTED
 
 # Debug flags
 DBGCFLAGS = -g -O0

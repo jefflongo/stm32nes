@@ -2,10 +2,9 @@
 
 #include "bitmask.h"
 #include "cartridge.h"
+#include "log.h"
 #include "nes.h"
 #include "ppu.h"
-
-#include <stdio.h>
 
 // For passing addressing modes as instruction arguments
 typedef u16 (*mode)();
@@ -28,9 +27,9 @@ static cpu_state_t cpu;
 static u8 ram[NES_RAM_SIZE];
 
 static void tick(void) {
-    ppu_tick();
-    ppu_tick();
-    ppu_tick();
+    // ppu_tick();
+    // ppu_tick();
+    // ppu_tick();
     cpu.cycle++;
 }
 
@@ -103,7 +102,7 @@ static inline void updateV(u8 d1, u8 d2, u16 r) {
 }
 
 static inline void updateN(u8 d) {
-    ASSIGN_NTH_BIT(cpu.P, STATUS_NEGATIVE, d & 0x80);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_NEGATIVE, NTH_BIT(d, 7));
 }
 
 /* Interrupts */
@@ -526,8 +525,8 @@ static void ORA(mode m) {
 static void BIT(mode m) {
     u8 d = rd(m());
     updateZ(cpu.A & d);
-    ASSIGN_NTH_BIT(cpu.P, STATUS_NEGATIVE, d & 0x80);
-    ASSIGN_NTH_BIT(cpu.P, STATUS_OVERFLOW, d & 0x40);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_NEGATIVE, NTH_BIT(d, 7));
+    ASSIGN_NTH_BIT(cpu.P, STATUS_OVERFLOW, NTH_BIT(d, 6));
     tick();
 }
 
@@ -617,7 +616,7 @@ static void ASL(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x80);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 7));
     d <<= 1;
     updateZ(d);
     updateN(d);
@@ -627,7 +626,7 @@ static void ASL(mode m) {
 }
 
 static void ASL_A(void) {
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, cpu.A & 0x80);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(cpu.A, 7));
     cpu.A <<= 1;
     updateZ(cpu.A);
     updateN(cpu.A);
@@ -638,7 +637,7 @@ static void LSR(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x01);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 0));
     d >>= 1;
     updateZ(d);
     updateN(d);
@@ -648,7 +647,7 @@ static void LSR(mode m) {
 }
 
 static void LSR_A(void) {
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, cpu.A & 0x01);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(cpu.A, 0));
     cpu.A >>= 1;
     updateZ(cpu.A);
     updateN(cpu.A);
@@ -660,7 +659,7 @@ static void ROL(mode m) {
     u8 d = rd(addr);
     tick();
     bool c = NTH_BIT(cpu.P, STATUS_CARRY);
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x80);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 7));
     d = (d << 1) | c;
     updateZ(d);
     updateN(d);
@@ -671,7 +670,7 @@ static void ROL(mode m) {
 
 static void ROL_A(void) {
     bool c = NTH_BIT(cpu.P, STATUS_CARRY);
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, cpu.A & 0x80);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(cpu.A, 7));
     cpu.A = (cpu.A << 1) | c;
     updateZ(cpu.A);
     updateN(cpu.A);
@@ -683,7 +682,7 @@ static void ROR(mode m) {
     u8 d = rd(addr);
     tick();
     bool c = NTH_BIT(cpu.P, STATUS_CARRY);
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x01);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 0));
     d = (d >> 1) | (c << 7);
     updateZ(d);
     updateN(d);
@@ -694,7 +693,7 @@ static void ROR(mode m) {
 
 static void ROR_A(void) {
     bool c = NTH_BIT(cpu.P, STATUS_CARRY);
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, cpu.A & 0x01);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(cpu.A, 0));
     cpu.A = (cpu.A >> 1) | (c << 7);
     updateZ(cpu.A);
     updateN(cpu.A);
@@ -927,7 +926,7 @@ static void SLO(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x80);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 7));
     d <<= 1;
     cpu.A |= d;
     updateZ(cpu.A);
@@ -942,7 +941,7 @@ static void RLA(mode m) {
     u8 d = rd(addr);
     tick();
     bool c = NTH_BIT(cpu.P, STATUS_CARRY);
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x80);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 7));
     d = (d << 1) | c;
     cpu.A &= d;
     updateZ(cpu.A);
@@ -956,7 +955,7 @@ static void SRE(mode m) {
     u16 addr = m();
     u8 d = rd(addr);
     tick();
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x01);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 0));
     d >>= 1;
     cpu.A ^= d;
     updateZ(cpu.A);
@@ -971,7 +970,7 @@ static void RRA(mode m) {
     u8 d = rd(addr);
     tick();
     bool c = NTH_BIT(cpu.P, STATUS_CARRY);
-    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, d & 0x01);
+    ASSIGN_NTH_BIT(cpu.P, STATUS_CARRY, NTH_BIT(d, 0));
     d = (d >> 1) | (c << 7);
     u16 s = cpu.A + d + NTH_BIT(cpu.P, STATUS_CARRY);
     updateC(s);
@@ -1439,7 +1438,7 @@ static void exec_inst(void) {
         case 0xFC:
             return SKB(absx_rd);
         default:
-            printf("Unsupported instruction: 0x%02X\n", op);
+            LOG("Unsupported instruction: 0x%02X\n", op);
             return NOP();
     }
 }

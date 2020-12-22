@@ -3,9 +3,9 @@
 #include "bitmask.h"
 #include "cartridge.h"
 #include "cpu.h"
+#include "log.h"
 #include "nes.h"
 
-#include <stdio.h>
 #include <string.h>
 
 #define PPU_RENDERING (PPUMASK.bg || PPUMASK.spr)
@@ -156,9 +156,7 @@ u16 ppu_nt_mirror(u16 addr) {
         case VERTICAL:
             return addr % 0x800; // Use the top two ($2000 and $2400)
         case HORIZONTAL:
-            return (
-              (addr & 0x800) +
-              addr % 0x400); // Use the left two ($2000 and $2800)
+            return ((addr & 0x800) + addr % 0x400); // Use the left two ($2000 and $2800)
         default:
             return addr - 0x2000; // [?] Why need this
     }
@@ -297,8 +295,7 @@ u16 ppu_get_bg_addr() {
 void ppu_h_scroll() {
     if (!PPU_RENDERING) return;
     if (PPUINTER.vAddr.cX == 31)
-        PPUINTER.vAddr.r ^=
-          0x41F; // Switch horizontal nametable and wrap coarse X.
+        PPUINTER.vAddr.r ^= 0x41F; // Switch horizontal nametable and wrap coarse X.
     else
         PPUINTER.vAddr.cX++;
 }
@@ -328,16 +325,14 @@ void ppu_v_scroll() {
  * */
 void ppu_h_update() {
     if (!PPU_RENDERING) return;
-    PPUINTER.vAddr.r =
-      (PPUINTER.vAddr.r & ~0x041F) |
-      (PPUINTER.tAddr.r & 0x041F); // Set the NT and the coarse X from tAddr
+    PPUINTER.vAddr.r = (PPUINTER.vAddr.r & ~0x041F) |
+                       (PPUINTER.tAddr.r & 0x041F); // Set the NT and the coarse X from tAddr
 }
 
 void ppu_v_update() {
     if (!PPU_RENDERING) return;
     PPUINTER.vAddr.r = (PPUINTER.vAddr.r & ~0x7BE0) |
-                       (PPUINTER.tAddr.r &
-                        0x7BE0); // Set the NT and fine and coarse X from tAddr
+                       (PPUINTER.tAddr.r & 0x7BE0); // Set the NT and fine and coarse X from tAddr
 }
 
 void ppu_reload_shift() {
@@ -396,19 +391,17 @@ void ppu_load_sprites() {
         oam[i] = secOam[i]; // Load sprite data
         // Sprite height setting
         if (PPU_SPRITE_H == 16)
-            addr =
-              ((oam[i].tile & 1) * 0x1000) +
-              ((oam[i].tile & ~1) * 16); // Bit 0 determined the bank index.
+            addr = ((oam[i].tile & 1) * 0x1000) +
+                   ((oam[i].tile & ~1) * 16); // Bit 0 determined the bank index.
         else
-            addr = (PPUCTRL.sprTbl * 0x1000) +
-                   (oam[i].tile * 16); // Each tile is 16B in pattern table.
+            addr =
+              (PPUCTRL.sprTbl * 0x1000) + (oam[i].tile * 16); // Each tile is 16B in pattern table.
 
         u8 sprY = (scanline - oam[i].y) % PPU_SPRITE_H;
         if (oam[i].attr & 0x80)
-            sprY ^= PPU_SPRITE_H -
-                    1; // [?] Why veritical flip can be achieved in this way?
-        addr += sprY + (sprY & 8); // Check if the addr is on the second part of
-                                   // the tile. Add the offset if it is
+            sprY ^= PPU_SPRITE_H - 1; // [?] Why veritical flip can be achieved in this way?
+        addr += sprY + (sprY & 8);    // Check if the addr is on the second part of
+                                      // the tile. Add the offset if it is
         oam[i].dataL = ppu_rd(addr + 0);
         oam[i].dataH = ppu_rd(addr + 8);
     }
@@ -425,12 +418,12 @@ void ppu_update_pixels() {
         // Background
         if (PPUMASK.bg && !(!PPUMASK.bgLeft && x < 8)) {
             // Background:
-            palette = (NTH_BIT(bgShiftH, 15 - PPUINTER.fX) << 1) |
-                      NTH_BIT(bgShiftL, 15 - PPUINTER.fX);
+            palette =
+              (NTH_BIT(bgShiftH, 15 - PPUINTER.fX) << 1) | NTH_BIT(bgShiftL, 15 - PPUINTER.fX);
             if (palette)
-                palette |= ((NTH_BIT(atShiftH, 7 - PPUINTER.fX) << 1) |
-                            NTH_BIT(atShiftL, 7 - PPUINTER.fX))
-                           << 2;
+                palette |=
+                  ((NTH_BIT(atShiftH, 7 - PPUINTER.fX) << 1) | NTH_BIT(atShiftL, 7 - PPUINTER.fX))
+                  << 2;
         }
 
         // Sprites
@@ -441,26 +434,23 @@ void ppu_update_pixels() {
                 u8 sprX = x - oam[i].x;
                 if (sprX >= 8) continue;
                 if (oam[i].attr & 0x40) sprX ^= 7; // Horizontal flip
-                u8 sprPalette = (NTH_BIT(oam[i].dataH, 7 - sprX) << 1) |
-                                NTH_BIT(oam[i].dataL, 7 - sprX);
+                u8 sprPalette =
+                  (NTH_BIT(oam[i].dataH, 7 - sprX) << 1) | NTH_BIT(oam[i].dataL, 7 - sprX);
                 if (sprPalette == 0) continue;
                 if (oam[i].id == 0 && palette && x != 255) // check palette is
                                                            // not transparent &&
                                                            // hit the first
                                                            // pixel.
                     PPUSTATUS.sprHit = 1;
-                sprPalette |= (oam[i].attr & 3)
-                              << 2;             // Add color to sprite pixel
-                objPalette = sprPalette + 0x10; // [?] Why add 16 to sprPalette
+                sprPalette |= (oam[i].attr & 3) << 2; // Add color to sprite pixel
+                objPalette = sprPalette + 0x10;       // [?] Why add 16 to sprPalette
                 objPriority = oam[i].attr & 0x20;
             }
         }
 
         // Evaluate Priority
-        if (objPalette && (palette == 0 || objPriority == 0))
-            palette = objPalette;
-        GRAM[(x + 32) * 240 + 239 - scanline] =
-          palette % 256; // load the CLUP index
+        if (objPalette && (palette == 0 || objPriority == 0)) palette = objPalette;
+        GRAM[(x + 32) * 240 + 239 - scanline] = palette % 256; // load the CLUP index
     }
     // Perform background shifts;
     bgShiftL <<= 1;

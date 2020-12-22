@@ -1,12 +1,12 @@
 #include "cartridge.h"
 #include "cpu.h"
+#include "log.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 
 int main() {
     if (cartridge_init("roms/smb.nes") != 0) {
-        printf("Failed to load ROM");
+        LOG("Failed to load ROM");
         return -1;
     }
 
