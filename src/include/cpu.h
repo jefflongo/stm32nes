@@ -1,5 +1,4 @@
-#ifndef CPU_H_
-#define CPU_H_
+#pragma once
 
 #include "types.h"
 
@@ -20,5 +19,3 @@ void cpu_run(void);
 void cpu_set_NMI(bool enable);
 void cpu_set_IRQ(bool enable);
 void cpu_get_state(cpu_state_t* state);
-
-#endif // CPU_H_

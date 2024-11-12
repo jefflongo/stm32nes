@@ -1,7 +1,10 @@
-#ifndef PPU_H_
-#define PPU_H_
+#pragma once
 
 #include "types.h"
+
+typedef struct {
+
+} ppu_state_t;
 
 typedef enum {
     WRITE,
@@ -40,5 +43,3 @@ void ppu_update_pixels();
 void ppu_tick_scanline(ppu_scanline_t type);
 void ppu_tick();
 void ppu_reset();
-
-#endif /* PPU_H_ */

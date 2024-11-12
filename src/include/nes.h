@@ -1,5 +1,4 @@
-#ifndef NES_H_
-#define NES_H_
+#pragma once
 
 /* NES Memory Layout */
 // $0000 - $00FF(256 bytes)   - Zero Page
@@ -34,5 +33,3 @@
 
 #define NES_DISPLAY_WIDTH 256
 #define NES_DISPLAY_HEIGHT 240
-
-#endif // NES_H_
