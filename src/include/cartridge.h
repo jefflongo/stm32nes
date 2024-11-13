@@ -7,9 +7,9 @@ typedef enum {
     CARTRIDGE_NOT_FOUND,
     CARTRIDGE_INVALID,
     CARTRIDGE_UNSUPPORTED,
-} cartridge_status_t;
+} cartridge_result_t;
 
-cartridge_status_t cartridge_init(char* filename);
+cartridge_result_t cartridge_init(char const* filename);
 u8 cartridge_prg_rd(u16 addr);
 u8 cartridge_chr_rd(u16 addr);
 void cartridge_prg_wr(u16 addr, u8 data);

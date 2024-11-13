@@ -2,7 +2,7 @@
 
 #include "bitmask.h"
 #include "log.h"
-#include "mapper0.h"
+#include "mappers/mapper0.h"
 #include "nes.h"
 #include "ppu.h"
 
@@ -34,7 +34,7 @@ static cartridge_t cart;
 static u32 prg_map[4], chr_map[8];
 // static u8 prg_bank, chr_bank;
 
-cartridge_status_t cartridge_init(char* filename) {
+cartridge_result_t cartridge_init(char const* filename) {
     // Load ROM into memory
     FILE* rom_file = fopen(filename, "rb");
     if (!rom_file) {
@@ -67,7 +67,8 @@ cartridge_status_t cartridge_init(char* filename) {
     // Flags 6
     // PPU nametable mirroring style
     cart.config.mirroring = NTH_BIT(cart.rom[6], 0);
-    ppu_set_mirror(cart.config.mirroring);
+    // TODO
+    // ppu_set_mirror(cart.config.mirroring);
     // Presence of PRG RAM
     cart.config.has_prg_ram = NTH_BIT(cart.rom[6], 1);
     // 512 byte trainer before PRG data
@@ -127,6 +128,8 @@ u8 cartridge_chr_rd(u16 addr) {
 
 void cartridge_prg_wr(u16 addr, u8 data) {
     // Use mapper's write implementation
+    (void)addr;
+    (void)data;
 }
 
 void cartridge_chr_wr(u16 addr, u8 data) {

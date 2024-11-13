@@ -2,9 +2,9 @@
 
 #include "types.h"
 
-typedef struct {
+// typedef struct {
 
-} ppu_state_t;
+// } ppu_state_t;
 
 typedef enum {
     WRITE,

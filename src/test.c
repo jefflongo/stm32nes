@@ -2,76 +2,40 @@
 #include "cpu.h"
 #include "log.h"
 
+#include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
 static void parse_cpu_state(char* s, int len) {
-    if (len < 100) return;
-
     cpu_state_t state;
-    char buffer[10];
-
     cpu_get_state(&state);
-
-    strcpy(s, "PC:");
-    sprintf(buffer, "%04X", state.PC);
-    strcat(s, buffer);
-    strcat(s, " A:");
-    sprintf(buffer, "%02X", state.A);
-    strcat(s, buffer);
-    strcat(s, " X:");
-    sprintf(buffer, "%02X", state.X);
-    strcat(s, buffer);
-    strcat(s, " Y:");
-    sprintf(buffer, "%02X", state.Y);
-    strcat(s, buffer);
-    strcat(s, " P:");
-    sprintf(buffer, "%02X", state.P);
-    strcat(s, buffer);
-    strcat(s, " SP:");
-    sprintf(buffer, "%02X", state.S);
-    strcat(s, buffer);
-    strcat(s, " CYC:");
-    sprintf(buffer, "%lu", (unsigned long)state.cycle);
-    strcat(s, buffer);
+    snprintf(
+      s,
+      len,
+      "%04X A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%lu",
+      state.PC,
+      state.A,
+      state.X,
+      state.Y,
+      state.P,
+      state.S,
+      state.cycle);
 }
 
-static void parse_verification_state(const char* line, char* s, int len) {
-    if (len < 100) return;
-
-    char buffer[10];
-
-    strcpy(s, "PC:");
-    strncpy(buffer, line, 4);
-    buffer[4] = '\0';
-    strcat(s, buffer);
-    strcat(s, " A:");
-    strncpy(buffer, line + 50, 2);
-    buffer[2] = '\0';
-    strcat(s, buffer);
-    strcat(s, " X:");
-    strncpy(buffer, line + 55, 2);
-    buffer[2] = '\0';
-    strcat(s, buffer);
-    strcat(s, " Y:");
-    strncpy(buffer, line + 60, 2);
-    buffer[2] = '\0';
-    strcat(s, buffer);
-    strcat(s, " P:");
-    strncpy(buffer, line + 65, 2);
-    buffer[2] = '\0';
-    strcat(s, buffer);
-    strcat(s, " SP:");
-    strncpy(buffer, line + 71, 2);
-    buffer[2] = '\0';
-    strcat(s, buffer);
-    strcat(s, " CYC:");
-    strcpy(buffer, line + 90);
-    int count = 0;
-    while (line[90 + count] != '\r' && line[90 + count] != EOF) count++;
-    buffer[count] = '\0';
-    strcat(s, buffer);
+static void parse_verification_state(char* line) {
+    size_t n = strlen(line);
+    assert(n > 90);
+    // remove the instruction information
+    memmove(line + 5, line + 48, 26);
+    // remove the PPU counter
+    // TODO: support this
+    memmove(line + 31, line + 86, n - 86);
+    // remove newline
+    char* newline = strchr(line, '\n');
+    if (newline) {
+        *newline = '\0';
+    }
 }
 
 static bool test_cpu() {
@@ -83,7 +47,6 @@ static bool test_cpu() {
     }
 
     char state[100];
-    char exp[100];
     char line[100];
 
     // Init cpu
@@ -92,13 +55,11 @@ static bool test_cpu() {
     // Run test
     while (fgets(line, sizeof(line), test)) {
         parse_cpu_state(state, sizeof(state));
-        parse_verification_state(line, exp, sizeof(exp));
-        if (strcmp(state, exp)) {
-            LOG("CPU TEST FAILURE\nExpected %s\nGot      %s\n", exp, state);
+        parse_verification_state(line);
+        if (strcmp(state, line)) {
+            LOG("CPU TEST FAILURE\nExpected %s\nGot      %s\n", line, state);
             return false;
         }
-        // For debugging:
-        // LOG("%s\n", state);
         cpu_run();
     }
 
@@ -106,8 +67,6 @@ static bool test_cpu() {
     return true;
 }
 
-int main() {
-    if (!test_cpu()) return -1;
-
-    return 0;
+int main(void) {
+    return test_cpu();
 }

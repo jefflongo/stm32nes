@@ -36,44 +36,38 @@ static void tick(void) {
 /* Read/Write operations */
 
 static u8 rd(u16 addr) {
-    switch (addr) {
-        case 0x0000 ... 0x1FFF:
-            return ram[addr % NES_RAM_SIZE];
-        case 0x2000 ... 0x3FFF:
-            return ppu_reg_access(addr % 0x100, 0, READ);
-        case 0x4000 ... 0x4015:
-            // APU, Peripherals..
-            return 0;
-        case 0x4016:
-            // return controller_rd(0);
-            return 0;
-        case 0x4017:
-            // return controller_rd(1);
-            return 0;
-        case 0x4018 ... 0xFFFF:
-            return cartridge_prg_rd(addr);
+    if (addr < 0x2000) {
+        return ram[addr % NES_RAM_SIZE];
+    } else if (addr < 0x4000) {
+        // TODO: return ppu_reg_access(addr % 0x100, 0, READ);
+        return 0;
+    } else if (addr <= 0x4015) {
+        // TODO: APU, Peripherals..
+        return 0;
+    } else if (addr == 0x4016) {
+        // TODO: return controller_rd(0);
+        return 0;
+    } else if (addr == 0x4017) {
+        // TODO: return controller_rd(1);
+        return 0;
+    } else {
+        return cartridge_prg_rd(addr);
     }
 }
 
 static void wr(u16 addr, u8 data) {
-    switch (addr) {
-        case 0x0000 ... 0x1FFF:
-            ram[addr % NES_RAM_SIZE] = data;
-            return;
-        case 0x2000 ... 0x3FFF:
-            ppu_reg_access(addr % 0x100, 0, WRITE);
-            return;
-        case 0x4000 ... 0x4015:
-            // APU, Peripherals..
-            return;
-        case 0x4016:
-            // controller_wr(data);
-            return;
-        case 0x4017:
-            return;
-        case 0x4018 ... 0xFFFF:
-            cartridge_prg_wr(addr, data);
-            return;
+    if (addr < 0x2000) {
+        ram[addr % NES_RAM_SIZE] = data;
+    } else if (addr < 0x4000) {
+        // TODO: ppu_reg_access(addr % 0x100, 0, WRITE);
+    } else if (addr <= 0x4015) {
+        // TODO: APU, Peripherals..
+    } else if (addr == 0x4016) {
+        // TODO: controller_wr(data);
+    } else if (addr == 0x4017) {
+        // TODO
+    } else {
+        cartridge_prg_wr(addr, data);
     }
 }
 
@@ -992,454 +986,667 @@ static void exec_inst(void) {
     // Decode/Execute
     switch (op) {
         case 0x00:
-            return BRK();
+            BRK();
+            break;
         case 0x01:
-            return ORA(xind);
+            ORA(xind);
+            break;
         case 0x05:
-            return ORA(zp);
+            ORA(zp);
+            break;
         case 0x06:
-            return ASL(zp);
+            ASL(zp);
+            break;
         case 0x08:
-            return PHP();
+            PHP();
+            break;
         case 0x09:
-            return ORA(imm);
+            ORA(imm);
+            break;
         case 0x0A:
-            return ASL_A();
+            ASL_A();
+            break;
         case 0x0D:
-            return ORA(absl);
+            ORA(absl);
+            break;
         case 0x0E:
-            return ASL(absl);
+            ASL(absl);
+            break;
         case 0x10:
-            return BPL(rel);
+            BPL(rel);
+            break;
         case 0x11:
-            return ORA(indy_rd);
+            ORA(indy_rd);
+            break;
         case 0x15:
-            return ORA(zpx);
+            ORA(zpx);
+            break;
         case 0x16:
-            return ASL(zpx);
+            ASL(zpx);
+            break;
         case 0x18:
-            return CLC();
+            CLC();
+            break;
         case 0x19:
-            return ORA(absy_rd);
+            ORA(absy_rd);
+            break;
         case 0x1D:
-            return ORA(absx_rd);
+            ORA(absx_rd);
+            break;
         case 0x1E:
-            return ASL(absx_wr);
+            ASL(absx_wr);
+            break;
         case 0x20:
-            return JSR();
+            JSR();
+            break;
         case 0x21:
-            return AND(xind);
+            AND(xind);
+            break;
         case 0x24:
-            return BIT(zp);
+            BIT(zp);
+            break;
         case 0x25:
-            return AND(zp);
+            AND(zp);
+            break;
         case 0x26:
-            return ROL(zp);
+            ROL(zp);
+            break;
         case 0x28:
-            return PLP();
+            PLP();
+            break;
         case 0x29:
-            return AND(imm);
+            AND(imm);
+            break;
         case 0x2A:
-            return ROL_A();
+            ROL_A();
+            break;
         case 0x2C:
-            return BIT(absl);
+            BIT(absl);
+            break;
         case 0x2D:
-            return AND(absl);
+            AND(absl);
+            break;
         case 0x2E:
-            return ROL(absl);
+            ROL(absl);
+            break;
         case 0x30:
-            return BMI(rel);
+            BMI(rel);
+            break;
         case 0x31:
-            return AND(indy_rd);
+            AND(indy_rd);
+            break;
         case 0x35:
-            return AND(zpx);
+            AND(zpx);
+            break;
         case 0x36:
-            return ROL(zpx);
+            ROL(zpx);
+            break;
         case 0x38:
-            return SEC();
+            SEC();
+            break;
         case 0x39:
-            return AND(absy_rd);
+            AND(absy_rd);
+            break;
         case 0x3D:
-            return AND(absx_rd);
+            AND(absx_rd);
+            break;
         case 0x3E:
-            return ROL(absx_wr);
+            ROL(absx_wr);
+            break;
         case 0x40:
-            return RTI();
+            RTI();
+            break;
         case 0x41:
-            return EOR(xind);
+            EOR(xind);
+            break;
         case 0x45:
-            return EOR(zp);
+            EOR(zp);
+            break;
         case 0x46:
-            return LSR(zp);
+            LSR(zp);
+            break;
         case 0x48:
-            return PHA();
+            PHA();
+            break;
         case 0x49:
-            return EOR(imm);
+            EOR(imm);
+            break;
         case 0x4A:
-            return LSR_A();
+            LSR_A();
+            break;
         case 0x4C:
-            return JMP(absl);
+            JMP(absl);
+            break;
         case 0x4D:
-            return EOR(absl);
+            EOR(absl);
+            break;
         case 0x4E:
-            return LSR(absl);
+            LSR(absl);
+            break;
         case 0x50:
-            return BVC(rel);
+            BVC(rel);
+            break;
         case 0x51:
-            return EOR(indy_rd);
+            EOR(indy_rd);
+            break;
         case 0x55:
-            return EOR(zpx);
+            EOR(zpx);
+            break;
         case 0x56:
-            return LSR(zpx);
+            LSR(zpx);
+            break;
         case 0x58:
-            return CLI();
+            CLI();
+            break;
         case 0x59:
-            return EOR(absy_rd);
+            EOR(absy_rd);
+            break;
         case 0x5D:
-            return EOR(absx_rd);
+            EOR(absx_rd);
+            break;
         case 0x5E:
-            return LSR(absx_wr);
+            LSR(absx_wr);
+            break;
         case 0x60:
-            return RTS();
+            RTS();
+            break;
         case 0x61:
-            return _ADC(xind);
+            _ADC(xind);
+            break;
         case 0x65:
-            return _ADC(zp);
+            _ADC(zp);
+            break;
         case 0x66:
-            return ROR(zp);
+            ROR(zp);
+            break;
         case 0x68:
-            return PLA();
+            PLA();
+            break;
         case 0x69:
-            return _ADC(imm);
+            _ADC(imm);
+            break;
         case 0x6A:
-            return ROR_A();
+            ROR_A();
+            break;
         case 0x6C:
-            return JMP(ind);
+            JMP(ind);
+            break;
         case 0x6D:
-            return _ADC(absl);
+            _ADC(absl);
+            break;
         case 0x6E:
-            return ROR(absl);
+            ROR(absl);
+            break;
         case 0x70:
-            return BVS(rel);
+            BVS(rel);
+            break;
         case 0x71:
-            return _ADC(indy_rd);
+            _ADC(indy_rd);
+            break;
         case 0x75:
-            return _ADC(zpx);
+            _ADC(zpx);
+            break;
         case 0x76:
-            return ROR(zpx);
+            ROR(zpx);
+            break;
         case 0x78:
-            return SEI();
+            SEI();
+            break;
         case 0x79:
-            return _ADC(absy_rd);
+            _ADC(absy_rd);
+            break;
         case 0x7D:
-            return _ADC(absx_rd);
+            _ADC(absx_rd);
+            break;
         case 0x7E:
-            return ROR(absx_wr);
+            ROR(absx_wr);
+            break;
         case 0x81:
-            return STA(xind);
+            STA(xind);
+            break;
         case 0x84:
-            return STY(zp);
+            STY(zp);
+            break;
         case 0x85:
-            return STA(zp);
+            STA(zp);
+            break;
         case 0x86:
-            return STX(zp);
+            STX(zp);
+            break;
         case 0x88:
-            return DEY();
+            DEY();
+            break;
         case 0x8A:
-            return TXA();
+            TXA();
+            break;
         case 0x8C:
-            return STY(absl);
+            STY(absl);
+            break;
         case 0x8D:
-            return STA(absl);
+            STA(absl);
+            break;
         case 0x8E:
-            return STX(absl);
+            STX(absl);
+            break;
         case 0x90:
-            return BCC(rel);
+            BCC(rel);
+            break;
         case 0x91:
-            return STA(indy_wr);
+            STA(indy_wr);
+            break;
         case 0x94:
-            return STY(zpx);
+            STY(zpx);
+            break;
         case 0x95:
-            return STA(zpx);
+            STA(zpx);
+            break;
         case 0x96:
-            return STX(zpy);
+            STX(zpy);
+            break;
         case 0x98:
-            return TYA();
+            TYA();
+            break;
         case 0x99:
-            return STA(absy_wr);
+            STA(absy_wr);
+            break;
         case 0x9A:
-            return TXS();
+            TXS();
+            break;
         case 0x9D:
-            return STA(absx_wr);
+            STA(absx_wr);
+            break;
         case 0xA0:
-            return LDY(imm);
+            LDY(imm);
+            break;
         case 0xA1:
-            return LDA(xind);
+            LDA(xind);
+            break;
         case 0xA2:
-            return LDX(imm);
+            LDX(imm);
+            break;
         case 0xA4:
-            return LDY(zp);
+            LDY(zp);
+            break;
         case 0xA5:
-            return LDA(zp);
+            LDA(zp);
+            break;
         case 0xA6:
-            return LDX(zp);
+            LDX(zp);
+            break;
         case 0xA8:
-            return TAY();
+            TAY();
+            break;
         case 0xA9:
-            return LDA(imm);
+            LDA(imm);
+            break;
         case 0xAA:
-            return TAX();
+            TAX();
+            break;
         case 0xAC:
-            return LDY(absl);
+            LDY(absl);
+            break;
         case 0xAD:
-            return LDA(absl);
+            LDA(absl);
+            break;
         case 0xAE:
-            return LDX(absl);
+            LDX(absl);
+            break;
         case 0xB0:
-            return BCS(rel);
+            BCS(rel);
+            break;
         case 0xB1:
-            return LDA(indy_rd);
+            LDA(indy_rd);
+            break;
         case 0xB4:
-            return LDY(zpx);
+            LDY(zpx);
+            break;
         case 0xB5:
-            return LDA(zpx);
+            LDA(zpx);
+            break;
         case 0xB6:
-            return LDX(zpy);
+            LDX(zpy);
+            break;
         case 0xB8:
-            return CLV();
+            CLV();
+            break;
         case 0xB9:
-            return LDA(absy_rd);
+            LDA(absy_rd);
+            break;
         case 0xBA:
-            return TSX();
+            TSX();
+            break;
         case 0xBC:
-            return LDY(absx_rd);
+            LDY(absx_rd);
+            break;
         case 0xBD:
-            return LDA(absx_rd);
+            LDA(absx_rd);
+            break;
         case 0xBE:
-            return LDX(absy_rd);
+            LDX(absy_rd);
+            break;
         case 0xC0:
-            return CPY(imm);
+            CPY(imm);
+            break;
         case 0xC1:
-            return CMP(xind);
+            CMP(xind);
+            break;
         case 0xC4:
-            return CPY(zp);
+            CPY(zp);
+            break;
         case 0xC5:
-            return CMP(zp);
+            CMP(zp);
+            break;
         case 0xC6:
-            return DEC(zp);
+            DEC(zp);
+            break;
         case 0xC8:
-            return INY();
+            INY();
+            break;
         case 0xC9:
-            return CMP(imm);
+            CMP(imm);
+            break;
         case 0xCA:
-            return DEX();
+            DEX();
+            break;
         case 0xCC:
-            return CPY(absl);
+            CPY(absl);
+            break;
         case 0xCD:
-            return CMP(absl);
+            CMP(absl);
+            break;
         case 0xCE:
-            return DEC(absl);
+            DEC(absl);
+            break;
         case 0xD0:
-            return BNE(rel);
+            BNE(rel);
+            break;
         case 0xD1:
-            return CMP(indy_rd);
+            CMP(indy_rd);
+            break;
         case 0xD5:
-            return CMP(zpx);
+            CMP(zpx);
+            break;
         case 0xD6:
-            return DEC(zpx);
+            DEC(zpx);
+            break;
         case 0xD8:
-            return CLD();
+            CLD();
+            break;
         case 0xD9:
-            return CMP(absy_rd);
+            CMP(absy_rd);
+            break;
         case 0xDD:
-            return CMP(absx_rd);
+            CMP(absx_rd);
+            break;
         case 0xDE:
-            return DEC(absx_wr);
+            DEC(absx_wr);
+            break;
         case 0xE0:
-            return CPX(imm);
+            CPX(imm);
+            break;
         case 0xE1:
-            return SBC(xind);
+            SBC(xind);
+            break;
         case 0xE4:
-            return CPX(zp);
+            CPX(zp);
+            break;
         case 0xE5:
-            return SBC(zp);
+            SBC(zp);
+            break;
         case 0xE6:
-            return INC(zp);
+            INC(zp);
+            break;
         case 0xE8:
-            return INX();
+            INX();
+            break;
         case 0xE9:
-            return SBC(imm);
+            SBC(imm);
+            break;
         case 0xEA:
-            return NOP();
+            NOP();
+            break;
         case 0xEC:
-            return CPX(absl);
+            CPX(absl);
+            break;
         case 0xED:
-            return SBC(absl);
+            SBC(absl);
+            break;
         case 0xEE:
-            return INC(absl);
+            INC(absl);
+            break;
         case 0xF0:
-            return BEQ(rel);
+            BEQ(rel);
+            break;
         case 0xF1:
-            return SBC(indy_rd);
+            SBC(indy_rd);
+            break;
         case 0xF5:
-            return SBC(zpx);
+            SBC(zpx);
+            break;
         case 0xF6:
-            return INC(zpx);
+            INC(zpx);
+            break;
         case 0xF8:
-            return SED();
+            SED();
+            break;
         case 0xF9:
-            return SBC(absy_rd);
+            SBC(absy_rd);
+            break;
         case 0xFD:
-            return SBC(absx_rd);
+            SBC(absx_rd);
+            break;
         case 0xFE:
-            return INC(absx_wr);
+            INC(absx_wr);
+            break;
         // Illegal opcodes
         case 0x03:
-            return SLO(xind);
+            SLO(xind);
+            break;
         case 0x07:
-            return SLO(zp);
+            SLO(zp);
+            break;
         case 0x0F:
-            return SLO(absl);
+            SLO(absl);
+            break;
         case 0x13:
-            return SLO(indy_rd);
+            SLO(indy_rd);
+            break;
         case 0x17:
-            return SLO(zpx);
+            SLO(zpx);
+            break;
         case 0x1B:
-            return SLO(absy_rd);
+            SLO(absy_rd);
+            break;
         case 0x1F:
-            return SLO(absx_rd);
+            SLO(absx_rd);
+            break;
         case 0x23:
-            return RLA(xind);
+            RLA(xind);
+            break;
         case 0x27:
-            return RLA(zp);
+            RLA(zp);
+            break;
         case 0x2F:
-            return RLA(absl);
+            RLA(absl);
+            break;
         case 0x33:
-            return RLA(indy_rd);
+            RLA(indy_rd);
+            break;
         case 0x37:
-            return RLA(zpx);
+            RLA(zpx);
+            break;
         case 0x3B:
-            return RLA(absy_rd);
+            RLA(absy_rd);
+            break;
         case 0x3F:
-            return RLA(absx_rd);
+            RLA(absx_rd);
+            break;
         case 0x43:
-            return SRE(xind);
+            SRE(xind);
+            break;
         case 0x47:
-            return SRE(zp);
+            SRE(zp);
+            break;
         case 0x4F:
-            return SRE(absl);
+            SRE(absl);
+            break;
         case 0x53:
-            return SRE(indy_rd);
+            SRE(indy_rd);
+            break;
         case 0x57:
-            return SRE(zpx);
+            SRE(zpx);
+            break;
         case 0x5B:
-            return SRE(absy_rd);
+            SRE(absy_rd);
+            break;
         case 0x5F:
-            return SRE(absx_rd);
+            SRE(absx_rd);
+            break;
         case 0x63:
-            return RRA(xind);
+            RRA(xind);
+            break;
         case 0x67:
-            return RRA(zp);
+            RRA(zp);
+            break;
         case 0x6F:
-            return RRA(absl);
+            RRA(absl);
+            break;
         case 0x73:
-            return RRA(indy_rd);
+            RRA(indy_rd);
+            break;
         case 0x77:
-            return RRA(zpx);
+            RRA(zpx);
+            break;
         case 0x7B:
-            return RRA(absy_rd);
+            RRA(absy_rd);
+            break;
         case 0x7F:
-            return RRA(absx_rd);
+            RRA(absx_rd);
+            break;
         case 0x83:
-            return SAX(xind);
+            SAX(xind);
+            break;
         case 0x87:
-            return SAX(zp);
+            SAX(zp);
+            break;
         case 0x8F:
-            return SAX(absl);
+            SAX(absl);
+            break;
         case 0x97:
-            return SAX(zpy);
+            SAX(zpy);
+            break;
         case 0xA3:
-            return LAX(xind);
+            LAX(xind);
+            break;
         case 0xA7:
-            return LAX(zp);
+            LAX(zp);
+            break;
         case 0xAB:
-            return LAX(imm);
+            LAX(imm);
+            break;
         case 0xAF:
-            return LAX(absl);
+            LAX(absl);
+            break;
         case 0xB3:
-            return LAX(indy_rd);
+            LAX(indy_rd);
+            break;
         case 0xB7:
-            return LAX(zpy);
+            LAX(zpy);
+            break;
         case 0xBF:
-            return LAX(absy_rd);
+            LAX(absy_rd);
+            break;
         case 0xC3:
-            return DCP(xind);
+            DCP(xind);
+            break;
         case 0xC7:
-            return DCP(zp);
+            DCP(zp);
+            break;
         case 0xCB:
-            return AXS(imm);
+            AXS(imm);
+            break;
         case 0xCF:
-            return DCP(absl);
+            DCP(absl);
+            break;
         case 0xD3:
-            return DCP(indy_rd);
+            DCP(indy_rd);
+            break;
         case 0xD7:
-            return DCP(zpx);
+            DCP(zpx);
+            break;
         case 0xDB:
-            return DCP(absy_rd);
+            DCP(absy_rd);
+            break;
         case 0xDF:
-            return DCP(absx_rd);
+            DCP(absx_rd);
+            break;
         case 0xE3:
-            return ISC(xind);
+            ISC(xind);
+            break;
         case 0xE7:
-            return ISC(zp);
+            ISC(zp);
+            break;
         case 0xEB:
-            return SBC(imm);
+            SBC(imm);
+            break;
         case 0xEF:
-            return ISC(absl);
+            ISC(absl);
+            break;
         case 0xF3:
-            return ISC(indy_rd);
+            ISC(indy_rd);
+            break;
         case 0xF7:
-            return ISC(zpx);
+            ISC(zpx);
+            break;
         case 0xFB:
-            return ISC(absy_rd);
+            ISC(absy_rd);
+            break;
         case 0xFF:
-            return ISC(absx_rd);
+            ISC(absx_rd);
+            break;
         case 0x1A:
         case 0x3A:
         case 0x5A:
         case 0x7A:
         case 0xDA:
         case 0xFA:
-            return NOP();
+            NOP();
+            break;
         case 0x04:
         case 0x44:
         case 0x64:
-            return SKB(zp);
+            SKB(zp);
+            break;
         case 0x14:
         case 0x34:
         case 0x54:
         case 0x74:
         case 0xD4:
         case 0xF4:
-            return SKB(zpx);
+            SKB(zpx);
+            break;
         case 0x80:
         case 0x82:
         case 0x89:
         case 0xC2:
         case 0xE2:
-            return SKB(imm);
+            SKB(imm);
+            break;
         case 0x0C:
-            return SKB(absl);
+            SKB(absl);
+            break;
         case 0x1C:
         case 0x3C:
         case 0x5C:
         case 0x7C:
         case 0xDC:
         case 0xFC:
-            return SKB(absx_rd);
+            SKB(absx_rd);
+            break;
         default:
             LOG("Unsupported instruction: 0x%02X\n", op);
-            return NOP();
+            NOP();
+            break;
     }
 }
 
