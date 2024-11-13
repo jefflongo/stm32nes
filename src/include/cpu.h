@@ -1,21 +1,8 @@
 #pragma once
 
-#include "types.h"
+#include "nes.h"
 
-typedef struct {
-    u16 PC;
-    u8 S;
-    u8 A;
-    u8 X;
-    u8 Y;
-    u8 P;
-    bool nmi;
-    bool irq;
-    u64 cycle;
-} cpu_state_t;
-
-void cpu_init(void);
-void cpu_run(void);
-void cpu_set_NMI(bool enable);
-void cpu_set_IRQ(bool enable);
-void cpu_get_state(cpu_state_t* state);
+void cpu_init(nes_t* state);
+void cpu_step(nes_t* state);
+void cpu_set_nmi(nes_t* state, bool enable);
+void cpu_set_irq(nes_t* state, bool enable);

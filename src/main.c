@@ -1,6 +1,6 @@
 #include "cartridge.h"
-#include "cpu.h"
 #include "log.h"
+#include "nes.h"
 
 #include <stdlib.h>
 
@@ -10,9 +10,10 @@ int main() {
         return -1;
     }
 
-    cpu_init();
+    nes_t nes;
+    nes_init(&nes);
     while (1) {
-        cpu_run();
+        nes_step(&nes);
     }
 
     return 0;

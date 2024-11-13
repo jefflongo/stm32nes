@@ -1,26 +1,24 @@
 #include "cartridge.h"
-#include "cpu.h"
 #include "log.h"
+#include "nes.h"
 
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
-static void parse_cpu_state(char* s, int len) {
-    cpu_state_t state;
-    cpu_get_state(&state);
+static void parse_cpu_state(nes_t* nes, char* s, int len) {
     snprintf(
       s,
       len,
       "%04X A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%lu",
-      state.PC,
-      state.A,
-      state.X,
-      state.Y,
-      state.P,
-      state.S,
-      state.cycle);
+      nes->cpu.pc,
+      nes->cpu.a,
+      nes->cpu.x,
+      nes->cpu.y,
+      nes->cpu.p,
+      nes->cpu.s,
+      nes->cpu.cycle);
 }
 
 static void parse_verification_state(char* line) {
@@ -46,21 +44,25 @@ static bool test_cpu() {
         return false;
     }
 
-    char state[100];
+    char cpu_state[100];
     char line[100];
 
+    nes_t nes;
+
     // Init cpu
-    cpu_init();
+    nes_init(&nes);
+    // nestest should start at 0xC000 instead of 0xC004 for emulators with no GUI
+    nes.cpu.pc &= ~0x0F;
 
     // Run test
     while (fgets(line, sizeof(line), test)) {
-        parse_cpu_state(state, sizeof(state));
+        parse_cpu_state(&nes, cpu_state, sizeof(cpu_state));
         parse_verification_state(line);
-        if (strcmp(state, line)) {
-            LOG("CPU TEST FAILURE\nExpected %s\nGot      %s\n", line, state);
+        if (strcmp(cpu_state, line)) {
+            LOG("CPU TEST FAILURE\nExpected %s\nGot      %s\n", line, cpu_state);
             return false;
         }
-        cpu_run();
+        nes_step(&nes);
     }
 
     LOG("CPU TEST SUCCESS\n");

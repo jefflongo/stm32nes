@@ -14,12 +14,13 @@ else()
   add_compile_options($<$<CONFIG:Debug>:-g3>)
 endif()
 
-add_executable(nes src/mappers/mapper0.c src/cartridge.c src/cpu.c src/main.c)
+add_executable(nes src/mappers/mapper0.c src/cartridge.c src/cpu.c src/memory.c
+                   src/nes.c src/main.c)
 target_include_directories(nes PRIVATE src/include)
 target_compile_definitions(nes PRIVATE PRINTF_SUPPORTED=1)
 
 add_executable(cpu_test src/mappers/mapper0.c src/cartridge.c src/cpu.c
-                        src/test.c)
+                        src/nes.c src/memory.c src/test.c)
 target_include_directories(cpu_test PRIVATE src/include)
 target_compile_definitions(cpu_test PRIVATE PRINTF_SUPPORTED=1)
 

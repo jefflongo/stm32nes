@@ -1,5 +1,7 @@
 #pragma once
 
+#include "types.h"
+
 /* NES Memory Layout */
 // $0000 - $00FF(256 bytes)   - Zero Page
 // $0100 - $01FF(256 bytes)   - Stack memory
@@ -33,3 +35,24 @@
 
 #define NES_DISPLAY_WIDTH 256
 #define NES_DISPLAY_HEIGHT 240
+
+typedef struct {
+    struct {
+        u16 pc;
+        u8 s;
+        u8 a;
+        u8 x;
+        u8 y;
+        u8 p;
+        bool nmi;
+        bool irq;
+        u64 cycle;
+    } cpu;
+
+    struct {
+        u8 ram[NES_RAM_SIZE];
+    } memory;
+} nes_t;
+
+void nes_init(nes_t* nes);
+void nes_step(nes_t* nes);

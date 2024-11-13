@@ -465,7 +465,7 @@ void ppu_tick_scanline(ppu_scanline_t type) {
     if (type == NMI && dot == 1) {
         PPUSTATUS.vBlank = 1;
         if (PPUCTRL.nmi) {
-            cpu_set_NMI(1);
+            cpu_set_nmi(1);
         }
     } else if (type == POST && dot == 0) {
         // [!] Bascially we do nothing on our platform
