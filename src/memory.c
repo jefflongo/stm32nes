@@ -24,7 +24,7 @@ u8 memory_read(nes_t* state, u16 addr) {
         // TODO: return controller_rd(1);
         return 0;
     } else {
-        return cartridge_prg_rd(addr);
+        return cartridge_prg_rd(state, addr);
     }
 }
 
@@ -40,6 +40,6 @@ void memory_write(nes_t* state, u16 addr, u8 data) {
     } else if (addr == 0x4017) {
         // TODO
     } else {
-        cartridge_prg_wr(addr, data);
+        cartridge_prg_wr(state, addr, data);
     }
 }

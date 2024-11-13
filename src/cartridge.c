@@ -10,31 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct {
-    u8 mapper;              // Mapper ID
-    u8 prg_size;            // PRG size in 16kB units
-    u8 chr_size;            // CHR size in 8kB units
-    ppu_mirror_t mirroring; // Mirroring mode if no VRAM
-    bool has_vram;          // Cart contains additional VRAM, ignore mirroring mode
-    bool has_chr_ram;       // Cart contains additional CHR RAM, set if chr_size = 0
-    bool has_prg_ram;       // Cart contains additional PRG RAM
-    u8 prg_ram_size;        // Size of PRG RAM in 8kB units if available
-} cartridge_config_t;
-
-typedef struct {
-    cartridge_config_t config;
-    u8* rom;
-    u8* prg;
-    u8* prg_ram;
-    u8* chr;
-} cartridge_t;
-
-static cartridge_t cart;
-
-static u32 prg_map[4], chr_map[8];
-// static u8 prg_bank, chr_bank;
-
-cartridge_result_t cartridge_init(char const* filename) {
+cartridge_result_t cartridge_init(nes_t* nes, char const* filename) {
     // Load ROM into memory
     FILE* rom_file = fopen(filename, "rb");
     if (!rom_file) {
@@ -42,101 +18,110 @@ cartridge_result_t cartridge_init(char const* filename) {
     }
     fseek(rom_file, 0L, SEEK_END);
     size_t rom_size = ftell(rom_file);
-    cart.rom = malloc(rom_size * sizeof(u8));
+    nes->cartridge.rom = malloc(rom_size * sizeof(u8));
     rewind(rom_file);
-    fread(cart.rom, 1, rom_size, rom_file);
+    fread(nes->cartridge.rom, 1, rom_size, rom_file);
     fclose(rom_file);
 
     /* Header - 16 bytes */
     // 4 byte magic number
-    if (memcmp(cart.rom, "NES\x1a", 4)) {
+    if (memcmp(nes->cartridge.rom, "NES\x1a", 4)) {
         return CARTRIDGE_UNSUPPORTED;
     }
     // PRG-ROM size in 16 kb blocks
-    cart.config.prg_size = cart.rom[4];
-    if (!cart.config.prg_size) {
+    nes->cartridge.config.prg_size = nes->cartridge.rom[4];
+    if (!nes->cartridge.config.prg_size) {
         return CARTRIDGE_INVALID;
     }
     // CHR-ROM in 8 kb blocks
-    if (cart.rom[5]) {
-        cart.config.chr_size = cart.rom[5];
+    if (nes->cartridge.rom[5]) {
+        nes->cartridge.config.chr_size = nes->cartridge.rom[5];
     } else {
-        cart.config.chr_size = 1;
-        cart.config.has_chr_ram = true;
+        nes->cartridge.config.chr_size = 1;
+        nes->cartridge.config.has_chr_ram = true;
     }
     // Flags 6
     // PPU nametable mirroring style
-    cart.config.mirroring = NTH_BIT(cart.rom[6], 0);
     // TODO
-    // ppu_set_mirror(cart.config.mirroring);
+    // nes->cartridge.config.mirroring = NTH_BIT(nes->cartridge.rom[6], 0);
+    // ppu_set_mirror(nes->cartridge.config.mirroring);
     // Presence of PRG RAM
-    cart.config.has_prg_ram = NTH_BIT(cart.rom[6], 1);
+    nes->cartridge.config.has_prg_ram = NTH_BIT(nes->cartridge.rom[6], 1);
     // 512 byte trainer before PRG data
-    if (NTH_BIT(cart.rom[6], 2)) {
+    if (NTH_BIT(nes->cartridge.rom[6], 2)) {
         return CARTRIDGE_UNSUPPORTED;
     }
     // Ignore nametable mirroring, provide 4-screen VRAM
-    cart.config.has_vram = NTH_BIT(cart.rom[6], 3);
+    nes->cartridge.config.has_vram = NTH_BIT(nes->cartridge.rom[6], 3);
     // Flags 7
     // Mapper lower nybble from flags 6, mapper upper nybble from flags 7
-    cart.config.mapper = (cart.rom[6] >> 4) | (cart.rom[7] & 0xF0);
+    nes->cartridge.config.mapper = (nes->cartridge.rom[6] >> 4) | (nes->cartridge.rom[7] & 0xF0);
     // Flags 8
     // PRG RAM size
-    cart.config.prg_ram_size = (cart.rom[8] != 0) ? cart.rom[8] : 1;
+    nes->cartridge.config.prg_ram_size = (nes->cartridge.rom[8] != 0) ? nes->cartridge.rom[8] : 1;
     // Flags 9
     // NTSC or PAL
-    if (cart.rom[9] != 0) {
+    if (nes->cartridge.rom[9] != 0) {
         return CARTRIDGE_UNSUPPORTED;
     }
     // Flags 10-15 unused
 
     // Load PRG data
-    cart.prg = cart.rom + NES_HEADER_SIZE;
+    nes->cartridge.prg = nes->cartridge.rom + NES_HEADER_SIZE;
 
     // Load CHR data
-    cart.chr = cart.rom + NES_HEADER_SIZE + cart.config.prg_size * NES_PRG_DATA_UNIT_SIZE;
+    nes->cartridge.chr = nes->cartridge.rom + NES_HEADER_SIZE +
+                         nes->cartridge.config.prg_size * NES_PRG_DATA_UNIT_SIZE;
     // Allocate PRG RAM
-    if (cart.config.has_prg_ram)
-        cart.prg_ram = malloc(cart.config.prg_ram_size * NES_PRG_RAM_UNIT_SIZE * sizeof(u8));
+    if (nes->cartridge.config.has_prg_ram)
+        nes->cartridge.prg_ram =
+          malloc(nes->cartridge.config.prg_ram_size * NES_PRG_RAM_UNIT_SIZE * sizeof(u8));
 
-    switch (cart.config.mapper) {
+    switch (nes->cartridge.config.mapper) {
         case 0:
-            mapper0_init((u32*)&prg_map, (u32*)&chr_map, cart.config.prg_size);
+            mapper0_init(
+              nes->cartridge.prg_map, nes->cartridge.chr_map, nes->cartridge.config.prg_size);
             break;
         default:
-            LOG("Mapper %d not supported.\n", cart.config.mapper);
+            LOG("Mapper %d not supported.\n", nes->cartridge.config.mapper);
             return CARTRIDGE_UNSUPPORTED;
     }
     return CARTRIDGE_SUCCESS;
 }
 
-u8 cartridge_prg_rd(u16 addr) {
+u8 cartridge_prg_rd(nes_t* nes, u16 addr) {
     if (addr >= NES_PRG_DATA_OFFSET) {
         int slot = (addr - NES_PRG_DATA_OFFSET) / NES_PRG_SLOT_SIZE;
         int offset = (addr - NES_PRG_DATA_OFFSET) % NES_PRG_SLOT_SIZE;
-        return cart.prg[prg_map[slot] + offset];
+        return nes->cartridge.prg[nes->cartridge.prg_map[slot] + offset];
     } else {
-        return cart.config.has_prg_ram ? cart.prg_ram[addr - NES_PRG_RAM_OFFSET] : 0;
+        return nes->cartridge.config.has_prg_ram ? nes->cartridge.prg_ram[addr - NES_PRG_RAM_OFFSET]
+                                                 : 0;
     }
 }
 
-u8 cartridge_chr_rd(u16 addr) {
+u8 cartridge_chr_rd(nes_t* nes, u16 addr) {
     int slot = addr / NES_CHR_SLOT_SIZE;
     int offset = addr % NES_CHR_SLOT_SIZE;
-    return cart.chr[chr_map[slot] + offset];
+    return nes->cartridge.chr[nes->cartridge.chr_map[slot] + offset];
 }
 
-void cartridge_prg_wr(u16 addr, u8 data) {
-    // Use mapper's write implementation
+void cartridge_prg_wr(nes_t* nes, u16 addr, u8 data) {
+    // TODO: Use mapper's write implementation
+    (void)nes;
     (void)addr;
     (void)data;
 }
 
-void cartridge_chr_wr(u16 addr, u8 data) {
-    if (cart.config.has_chr_ram) cart.chr[addr] = data;
+void cartridge_chr_wr(nes_t* nes, u16 addr, u8 data) {
+    if (nes->cartridge.config.has_chr_ram) {
+        nes->cartridge.chr[addr] = data;
+    }
 }
 
-void reset(void) {
-    free(cart.rom);
-    if (cart.config.has_prg_ram) free(cart.prg_ram);
+void reset(nes_t* nes) {
+    free(nes->cartridge.rom);
+    if (nes->cartridge.config.has_prg_ram) {
+        free(nes->cartridge.prg_ram);
+    }
 }

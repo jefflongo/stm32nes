@@ -36,23 +36,20 @@ static void parse_verification_state(char* line) {
     }
 }
 
-static bool test_cpu() {
-    // Load verification log and test rom
+static bool test_cpu(void) {
+    // load verification file
     FILE* test = fopen("test/nestest.txt", "rb");
-    if (!test || cartridge_init("test/nestest.nes") != 0) {
+
+    nes_t nes;
+    if (!test || !nes_init(&nes, "test/nestest.nes")) {
         LOG("CPU TEST FAILURE\nVerification files not found.\n");
         return false;
     }
+    // nestest should start at 0xC000 instead of 0xC004 for emulators with no GUI
+    nes.cpu.pc &= ~0x0F;
 
     char cpu_state[100];
     char line[100];
-
-    nes_t nes;
-
-    // Init cpu
-    nes_init(&nes);
-    // nestest should start at 0xC000 instead of 0xC004 for emulators with no GUI
-    nes.cpu.pc &= ~0x0F;
 
     // Run test
     while (fgets(line, sizeof(line), test)) {
@@ -70,5 +67,5 @@ static bool test_cpu() {
 }
 
 int main(void) {
-    return test_cpu();
+    return test_cpu() ? 0 : 1;
 }

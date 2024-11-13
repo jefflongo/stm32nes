@@ -52,7 +52,28 @@ typedef struct {
     struct {
         u8 ram[NES_RAM_SIZE];
     } memory;
+
+    struct {
+        struct {
+            u8 mapper;   // Mapper ID
+            u8 prg_size; // PRG size in 16kB units
+            u8 chr_size; // CHR size in 8kB units
+            // ppu_mirror_t mirroring; TODO // Mirroring mode if no VRAM
+            bool has_vram;    // Cart contains additional VRAM, ignore mirroring mode
+            bool has_chr_ram; // Cart contains additional CHR RAM, set if chr_size = 0
+            bool has_prg_ram; // Cart contains additional PRG RAM
+            u8 prg_ram_size;  // Size of PRG RAM in 8kB units if available
+        } config;
+        u8* rom;
+        u8* prg;
+        u8* prg_ram;
+        u8* chr;
+        u32 prg_map[4];
+        u32 chr_map[8];
+        // u8 prg_bank;
+        // u8 chr_bank;
+    } cartridge;
 } nes_t;
 
-void nes_init(nes_t* nes);
+bool nes_init(nes_t* nes, char const* file);
 void nes_step(nes_t* nes);
